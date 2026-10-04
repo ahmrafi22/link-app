@@ -1,56 +1,52 @@
-# Welcome to your Expo app 👋
+# Link Vault — mobile app
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Local-first capture inbox for [the Link Vault plan](../PLAN.md) (Phase 2, local-only stage). Share a link from **any** app — X, Instagram, YouTube, your browser — tap **Link Vault** in the share sheet, and it is stored on-device and listed here. No server, no accounts, no other services yet.
 
-## Get started
+## What it does
 
-1. Install dependencies
+- **Share-sheet capture** — Android intent filter (`ACTION_SEND`, `text/*`) and an iOS share extension (web URL + text), both wired by the `expo-share-intent` config plugin. The app opens, the link lands in the list.
+- **Local storage only** — items persist in AsyncStorage. Everything works offline.
+- **Deduplication** — URLs are normalized (scheme/host lowercased, `utm_*`, `fbclid`, `igsh`, YouTube `si`, X `s`, etc. stripped) and re-shares bump a `×N` counter instead of creating a second entry, matching the plan's `seen_count` model.
+- **Links and notes** — a share with only text (no URL) is saved as a note; captions shared with a link are kept with it.
+- **Search, open, copy, delete** — tap a row to open the link in an in-app browser tab; long-press for copy/open/delete.
+- **Manual paste** — the input at the top doubles as the quick-capture form (and is the capture surface on web via `npm run web`).
 
-   ```bash
-   npm install
-   ```
+## Running it (no Android Studio needed)
 
-2. Start the app
+> The share target cannot run in **Expo Go** — the share extension/intent filters are native code compiled into the app binary, and Expo Go is a fixed pre-built binary. A one-time cloud-built dev client replaces Expo Go (and replaces any local Android SDK install).
 
-   ```bash
-   npx expo start
-   ```
+Prerequisites: Node 24, npm, a free Expo account, and an Android phone (the share-sheet flow needs a real phone anyway).
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+One-time setup — build the dev client in Expo's cloud and install it on your phone:
 
 ```bash
-npm run reset-project
+npm install
+npx eas login                      # free account at expo.dev
+npm run build:dev                  # EAS cloud build (~15–20 min on the free tier)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+When the build finishes, the terminal shows a QR code / link — open it on the phone and install the APK (allow "install unknown apps" when prompted).
 
-### Other setup steps
+Day-to-day development after that — live reload from your PC, no more builds:
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+npm start                          # phone and PC on the same Wi-Fi (or: npx expo start --tunnel)
+```
 
-## Learn more
+Open **Link Vault** on the phone — it connects to Metro from your PC and hot-reloads JS changes. Native config changes (app.json/plugins) are the only thing that needs another `npm run build:dev`.
 
-To learn more about developing your project with Expo, look at the following resources:
+Testing the share target: open any app with a link (X, YouTube, browser…), tap **Share**, pick **Link Vault**, and the item appears in the list. Sharing the same link twice bumps the `×N` badge.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+`npm run build:apk` builds a standalone APK (no Metro connection) if you want to install it somewhere without the dev server.
 
-## Join the community
+## Project layout
 
-Join our community of developers creating universal apps.
+```
+src/app/_layout.tsx   # RootLayout: ShareIntentProvider + themed Stack
+src/app/index.tsx     # Inbox screen: share handling, list, search, paste input
+src/lib/store.ts      # item types, URL normalization/dedupe, AsyncStorage CRUD, useVault()
+src/lib/theme.ts      # light/dark palette
+scripts/make-icons.mjs# regenerates assets/images icon set (npm run icons)
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Data is a single JSON array under AsyncStorage key `linkvault.items.v1`. When the backend phases land (per PLAN.md), this store is the seam to replace with API sync + offline queue.
