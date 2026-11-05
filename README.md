@@ -39,6 +39,15 @@ Testing the share target: open any app with a link (X, YouTube, browser…), tap
 
 `npm run build:apk` builds a standalone APK (no Metro connection) if you want to install it somewhere without the dev server.
 
+## CI: APK from GitHub, no local Android SDK
+
+Every push to `master`/`main` runs [.github/workflows/build-apk.yml](.github/workflows/build-apk.yml): GitHub's runner installs deps, runs `expo prebuild` (the `/android` folder is gitignored, so CI regenerates it), builds a **standalone release APK** (JS bundled, signed with the template's auto-generated debug keystore — fine for sideloading, no Metro or dev server needed) and publishes it two ways:
+
+- **Releases** (the one to use) — `github.com/<you>/<repo>/releases` → newest `build-N` at the top → tap the `.apk` in the phone browser and install. Never expires, no login needed on a public repo.
+- **Workflow artifacts** — repo Actions tab → the run → artifacts. Zipped, expires after ~90 days; use Releases instead.
+
+No secrets or Expo account needed. To trigger a build without a push: Actions tab → "Build Android APK" → Run workflow. First build is slow (~15–20 min); later ones are faster thanks to the Gradle cache. Debug-signed is fine for sideloading; a release-signed build can be added later with a keystore secret.
+
 ## Project layout
 
 ```
