@@ -41,6 +41,18 @@ jobs:
         env:
           EXPO_NO_TELEMETRY: 1
 
+      # the wrapper's default 10s network timeout is too short for the
+      # Gradle distribution download from GitHub runners (run #1 failed on it)
+      - name: Raise Gradle wrapper network timeout
+        run: |
+          cd android/gradle/wrapper
+          if grep -q '^networkTimeout=' gradle-wrapper.properties; then
+            sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle-wrapper.properties
+          else
+            echo 'networkTimeout=120000' >> gradle-wrapper.properties
+          fi
+          grep networkTimeout gradle-wrapper.properties
+
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
