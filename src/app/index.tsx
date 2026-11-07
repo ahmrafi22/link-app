@@ -209,7 +209,14 @@ export default function InboxScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Vault</Text>
+          <Pressable
+            onLongPress={() => router.push("/diagnostics")}
+            delayLongPress={400}
+            accessibilityRole="button"
+            accessibilityLabel="Vault"
+          >
+            <Text style={styles.title}>Vault</Text>
+          </Pressable>
           <Text style={styles.subtitle}>
             {loaded
               ? `${items.length} saved${linkCount !== items.length ? ` · ${linkCount} links` : ""}${

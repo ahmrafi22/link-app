@@ -254,6 +254,15 @@ function isFresh(entry: CacheEntry): boolean {
   return Date.now() - entry.at < ttl;
 }
 
+/** Drop the whole extraction cache (diagnostics escape hatch). */
+export async function clearExtractCache(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(CACHE_KEY);
+  } catch {
+    // best-effort
+  }
+}
+
 // ---- public API -----------------------------------------------------------
 
 /**
