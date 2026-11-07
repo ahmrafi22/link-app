@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -135,6 +136,7 @@ export default function DiagnosticsScreen() {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Network probe (from inside the app)</Text>
+          <Text style={styles.line}>App version: v{Constants.expoConfig?.version ?? "?"}</Text>
           <Text style={[styles.line, styles[probe.kind]]}>{probe.text}</Text>
         </View>
 
