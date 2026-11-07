@@ -3,6 +3,11 @@ name: Build Android APK
 on:
   push:
     branches: [master, main]
+    # only rebuild the APK when the mobile app (or this workflow) changes —
+    # web/backend commits skip the ~15-minute Android build entirely
+    paths:
+      - "apps/mobile/**"
+      - ".github/workflows/build-apk.yml"
   workflow_dispatch:
 
 # a newer push to the same branch cancels the older build still running
@@ -17,6 +22,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +32,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
 
       - uses: actions/setup-java@v4
         with:
@@ -59,7 +68,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/mobile/android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
       # release variant bundles the JS (a debug APK would boot to the
@@ -74,7 +83,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linkvault-apk-${{ github.run_number }}
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Publish to Releases
@@ -83,4 +92,4 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: build-${{ github.run_number }}
-          files: android/app/build/outputs/apk/release/app-release.apk
+          files: apps/mobile/android/app/build/outputs/apk/release/app-release.apk

@@ -1,43 +1,19 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# deps / builds
 node_modules/
+.next/
+.vercel/
+android/
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+# env secrets — only .env.example is ever committed
+.env
+.env.*
+!.env.example
 
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
+# OS / logs
 .DS_Store
-*.pem
+*.log
 
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-example
-
-# generated native folders
-/ios
-/android
+# local ZCode agent tooling (not part of the app)
+plugins/
+.zcodeignore
+.zcode-write-probe
