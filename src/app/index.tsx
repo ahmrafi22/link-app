@@ -19,19 +19,23 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
+import { createCardStyles, MasonryGrid } from "@/components/cards";
 import { DEMO_URLS, enrichLinks, selectEnrichTargets } from "@/lib/extract";
-import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
+import { folderLabel, foldersFromItems, type Folder } from "@/lib/folders";
+import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
+import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
 export default function InboxScreen() {
   const c = useTheme();
-  const styles = useMemo(() => createStyles(c), [c]);
+  const styles = useMemo(
+    () => StyleSheet.create({ ...createCardStyles(c), ...createStyles(c) }),
+    [c]
+  );
 
   const { items, loaded, add, remove, updateMany, itemsRef } = useVault();
 
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   const [fetchingCount, setFetchingCount] = useState(0);
@@ -73,7 +77,7 @@ export default function InboxScreen() {
       enrichingRef.current = false;
       setFetchingCount(0);
     }
-  }, [itemsRef, updateMany]);
+  }, [itemsRef, updateMany, flash]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -102,46 +106,19 @@ export default function InboxScreen() {
     return () => sub.remove();
   }, [loaded, add, flash, runEnrichment]);
 
-  // filter chips: everything actually present in the vault, first-seen order
-  const filters = useMemo(() => {
-    const platforms: string[] = [];
-    let hasNote = false;
-    let hasFavorite = false;
-    for (const i of items) {
-      if (i.favorite) hasFavorite = true;
-      if (i.kind === "text") {
-        hasNote = true;
-      } else {
-        const p = i.platform ?? "link";
-        if (!platforms.includes(p)) platforms.push(p);
-      }
-    }
-    return ["all", ...(hasFavorite ? ["starred"] : []), ...platforms, ...(hasNote ? ["note"] : [])];
-  }, [items]);
+  // one folder per platform present, plus All / Starred / Notes
+  const folders = useMemo(() => foldersFromItems(items), [items]);
 
-  // drop the active chip if its platform no longer exists
-  useEffect(() => {
-    if (filter !== "all" && !filters.includes(filter)) setFilter("all");
-  }, [filters, filter]);
-
-  const filtered = useMemo(() => {
-    let list = items;
-    if (filter === "note") list = list.filter((i) => i.kind === "text");
-    else if (filter === "starred") list = list.filter((i) => i.favorite);
-    else if (filter !== "all")
-      list = list.filter(
-        (i) => i.kind === "link" && (i.platform ?? "link") === filter
-      );
+  // while searching, the folder grid is replaced by matching items
+  const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (q) {
-      list = list.filter((i) =>
-        [i.title, i.url, i.rawText, i.description, i.siteName, i.platform]
-          .filter(Boolean)
-          .some((v) => (v as string).toLowerCase().includes(q))
-      );
-    }
-    return list;
-  }, [items, search, filter]);
+    if (!q) return null;
+    return items.filter((i) =>
+      [i.title, i.url, i.rawText, i.description, i.siteName, i.platform]
+        .filter(Boolean)
+        .some((v) => (v as string).toLowerCase().includes(q))
+    );
+  }, [items, search]);
 
   const openLink = useCallback(async (url: string) => {
     try {
@@ -237,43 +214,12 @@ export default function InboxScreen() {
           </Text>
         </View>
 
-        {filters.length > 2 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillRow}
-          >
-            {filters.map((f) => {
-              const active = filter === f;
-              return (
-                <Pressable
-                  key={f}
-                  onPress={() => setFilter(f)}
-                  style={[styles.pill, active && styles.pillActive]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                >
-                  <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                    {f === "all"
-                      ? "All"
-                      : f === "note"
-                        ? "Notes"
-                        : f === "starred"
-                          ? "★ Starred"
-                          : f}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-
         <View style={styles.searchRow}>
           <TextInput
             style={styles.input}
             value={search}
             onChangeText={setSearch}
-            placeholder="Search your vault"
+            placeholder="Search everything"
             placeholderTextColor={c.dim}
             autoCapitalize="none"
             autoCorrect={false}
@@ -281,38 +227,34 @@ export default function InboxScreen() {
           />
         </View>
 
-        {loaded && items.length === 0 ? (
-          <EmptyState styles={styles} onDemo={addDemoLinks} />
-        ) : (
-          <ScrollView
-            contentContainerStyle={styles.listContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {filtered.length === 0 ? (
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+        >
+          {searchResults ? (
+            searchResults.length === 0 ? (
               <Text style={styles.noResults}>
                 Nothing matches “{search.trim()}”.
               </Text>
             ) : (
-              <View style={styles.masonry}>
-                {[0, 1].map((col) => (
-                  <View key={col} style={styles.masonryCol}>
-                    {filtered
-                      .filter((_, i) => i % 2 === col)
-                      .map((item) => (
-                        <ItemCard
-                          key={item.id}
-                          item={item}
-                          styles={styles}
-                          onPress={() => router.push(`/item/${item.id}`)}
-                          onLongPress={() => showMenu(item)}
-                        />
-                      ))}
-                  </View>
-                ))}
-              </View>
-            )}
-          </ScrollView>
-        )}
+              <MasonryGrid items={searchResults} styles={styles} onLongPress={showMenu} />
+            )
+          ) : !loaded ? null : items.length === 0 ? (
+            <EmptyState styles={styles} onDemo={addDemoLinks} />
+          ) : (
+            <View style={styles.folderWrap}>
+              {folders.map((folder) => (
+                <FolderCard
+                  key={folder.key}
+                  folder={folder}
+                  styles={styles}
+                  onPress={() => router.push(`/folder/${folder.key}`)}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
 
         <View style={styles.captureBar}>
           <TextInput
@@ -368,147 +310,88 @@ function EmptyState({
   );
 }
 
-function ItemCard({
-  item,
+/** Folder tile: fanned thumbnails peeking out of a pocket, name + count. */
+function FolderCard({
+  folder,
   styles,
   onPress,
-  onLongPress,
 }: {
-  item: VaultItem;
+  folder: Folder;
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
-  onLongPress: () => void;
 }) {
-  const domain = domainOf(item);
+  const noun =
+    folder.key === "note" ? "note" : folder.key === "starred" ? "item" : "link";
+  const nounPlural = folder.key === "note" ? "notes" : folder.key === "starred" ? "items" : "links";
+  const top = folder.items.slice(0, 3);
+  const tile = platformTile(folder.key === "note" ? "note" : folder.key, "link");
+
+  // fan layout for 1 / 2 / 3 thumbnails
+  const placements = [
+    { left: 10, top: 24, rot: -8, z: 1 },
+    { right: 10, top: 24, rot: 8, z: 1 },
+    { left: "50%" as const, marginLeft: -42, top: 28, rot: -2, z: 5 },
+  ];
+  const used =
+    top.length === 1 ? [placements[2]] : top.length === 2 ? [placements[0], placements[1]] : placements;
+
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [styles.folderCard, pressed && { opacity: 0.85 }]}
       onPress={onPress}
-      onLongPress={onLongPress}
-      accessibilityRole={item.url ? "link" : "button"}
+      accessibilityRole="button"
+      accessibilityLabel={`${folderLabel(folder.key)} folder, ${folder.items.length} items`}
     >
-      <CardTile item={item} styles={styles} />
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTitle} numberOfLines={2}>
-          {itemDisplayTitle(item)}
-        </Text>
-        {item.description ? (
-          <Text style={styles.cardDetail} numberOfLines={2}>
-            {item.description}
-          </Text>
-        ) : item.url ? (
-          <Text style={styles.cardDetail} numberOfLines={1}>
-            {domain ?? item.url}
-          </Text>
-        ) : item.rawText ? (
-          <Text style={styles.cardDetail} numberOfLines={2}>
-            {item.rawText}
-          </Text>
-        ) : null}
-        <Text style={styles.cardWhen}>{formatWhen(item.lastSeenAt || item.createdAt)}</Text>
+      <View style={styles.folderVisual}>
+        {top.length === 0 ? (
+          <View style={styles.folderGlyphWrap}>
+            <Text style={[styles.folderGlyph, { backgroundColor: tile.bg }]}>
+              {tile.glyph}
+            </Text>
+          </View>
+        ) : (
+          top.map((item, i) => {
+            const p = used[i];
+            const rot = { transform: [{ rotate: `${p.rot}deg` }] };
+            const pos =
+              p.left != null
+                ? { left: p.left, marginLeft: p.marginLeft }
+                : { right: p.right };
+            return (
+              <View
+                key={item.id}
+                style={[styles.folderThumb, pos as object, rot, { zIndex: p.z, elevation: p.z }]}
+              >
+                {item.thumbnailUrl ? (
+                  <Image
+                    source={{ uri: item.thumbnailUrl }}
+                    style={styles.folderThumbImg}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.folderThumbImg,
+                      styles.folderThumbGlyph,
+                      { backgroundColor: platformTile(item.platform, item.kind).bg },
+                    ]}
+                  >
+                    <Text style={styles.folderThumbGlyphText}>
+                      {platformTile(item.platform, item.kind).glyph}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          })
+        )}
       </View>
+      <Text style={styles.folderName}>{folderLabel(folder.key)}</Text>
+      <Text style={styles.folderCount}>
+        {folder.items.length} {folder.items.length === 1 ? noun : nounPlural}
+      </Text>
     </Pressable>
   );
-}
-
-/** Tile with the captured thumbnail at its natural shape; colored glyph otherwise. */
-function CardTile({
-  item,
-  styles,
-}: {
-  item: VaultItem;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const [broken, setBroken] = useState(false);
-  const [ratio, setRatio] = useState<number | null>(null);
-  const tile = platformTile(item.platform, item.kind);
-  const showImage = !!item.thumbnailUrl && !broken;
-
-  useEffect(() => {
-    setBroken(false);
-    setRatio(null);
-    if (!item.thumbnailUrl) return;
-    let alive = true;
-    Image.getSize(
-      item.thumbnailUrl,
-      (w, h) => {
-        if (alive && w > 0 && h > 0) setRatio(w / h);
-      },
-      () => {}
-    );
-    return () => {
-      alive = false;
-    };
-  }, [item.thumbnailUrl]);
-
-  if (!showImage) {
-    return (
-      <View style={[styles.tile, { backgroundColor: tile.bg }]}>
-        <Text style={[styles.tileGlyph, tile.glyph.length > 1 && styles.tileGlyphSmall]}>
-          {tile.glyph}
-        </Text>
-        <TileBadges item={item} styles={styles} />
-      </View>
-    );
-  }
-
-  // vertical images get a tall tile (clamped so extreme reels don't take over)
-  const tileStyle =
-    ratio != null ? [styles.tileFlex, { aspectRatio: Math.min(Math.max(ratio, 0.75), 2.4) }] : styles.tile;
-
-  return (
-    <View style={tileStyle}>
-      <Image
-        source={{ uri: item.thumbnailUrl! }}
-        style={styles.tileImage}
-        resizeMode="cover"
-        onError={() => setBroken(true)}
-      />
-      <TileBadges item={item} styles={styles} />
-    </View>
-  );
-}
-
-function TileBadges({
-  item,
-  styles,
-}: {
-  item: VaultItem;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <>
-      {item.kind === "link" && !item.enrichmentLevel && (
-        <View style={styles.pendingBadge}>
-          <Text style={styles.pendingBadgeText}>…</Text>
-        </View>
-      )}
-      {item.favorite && (
-        <View style={styles.favBadge}>
-          <Text style={styles.favBadgeText}>★</Text>
-        </View>
-      )}
-      {item.seenCount > 1 && (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>×{item.seenCount}</Text>
-        </View>
-      )}
-    </>
-  );
-}
-
-function formatWhen(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const min = Math.floor((Date.now() - then) / 60000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d === 1) return "yesterday";
-  if (d < 7) return `${d}d ago`;
-  return new Date(then).toLocaleDateString();
 }
 
 function createStyles(c: ThemeColors) {
@@ -523,17 +406,8 @@ function createStyles(c: ThemeColors) {
     },
     title: { fontSize: 32, fontWeight: "800", color: c.text, letterSpacing: -0.8 },
     subtitle: { fontSize: 13, color: c.dim },
-    pillRow: { gap: 8, paddingHorizontal: 20, paddingBottom: 4 },
-    pill: {
-      backgroundColor: c.surfaceAlt,
-      borderRadius: 999,
-      paddingHorizontal: 15,
-      paddingVertical: 8,
-    },
-    pillActive: { backgroundColor: c.pillBg },
-    pillText: { fontSize: 13.5, fontWeight: "600", color: c.text },
-    pillTextActive: { color: c.onAccent, fontWeight: "700" },
-    searchRow: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
+    body: { paddingHorizontal: 20, paddingBottom: 24, gap: 4 },
+    searchRow: { paddingHorizontal: 20, paddingTop: 2, paddingBottom: 10 },
     input: {
       backgroundColor: c.surface,
       borderColor: c.border,
@@ -544,65 +418,54 @@ function createStyles(c: ThemeColors) {
       fontSize: 15,
       color: c.text,
     },
-    listContent: { gap: 12, paddingHorizontal: 20, paddingBottom: 24, paddingTop: 2 },
-    masonry: { flexDirection: "row", gap: 12 },
-    masonryCol: { flex: 1, gap: 12 },
-    card: {
+    noResults: { color: c.dim, textAlign: "center", marginTop: 24, fontSize: 14 },
+    // folder grid
+    folderWrap: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+    folderCard: {
+      flexGrow: 1,
+      flexBasis: "46%",
       backgroundColor: c.surface,
       borderRadius: 20,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    folderVisual: {
+      height: 112,
+      borderRadius: 14,
+      backgroundColor: c.surfaceAlt,
+      overflow: "hidden",
+      marginBottom: 10,
+    },
+    folderThumb: {
+      position: "absolute",
+      width: 84,
+      height: 64,
+      borderRadius: 9,
+      overflow: "hidden",
+      borderWidth: 2,
+      borderColor: c.surface,
+      backgroundColor: c.surfaceAlt,
+    },
+    folderThumbImg: { width: "100%", height: "100%" },
+    folderThumbGlyph: { alignItems: "center", justifyContent: "center" },
+    folderThumbGlyphText: { fontSize: 20, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },
+    folderGlyphWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
+    folderGlyph: {
+      width: 56,
+      height: 40,
+      borderRadius: 9,
+      color: "#FFFFFF",
+      opacity: 0.92,
+      fontSize: 18,
+      fontWeight: "800",
+      textAlign: "center",
+      textAlignVertical: "center",
       overflow: "hidden",
     },
-    tile: {
-      height: 92,
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-    },
-    tileFlex: {
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-      width: "100%",
-    },
-    tileImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
-    tileGlyph: { fontSize: 32, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },
-    tileGlyphSmall: { fontSize: 24 },
-    badge: {
-      position: "absolute",
-      top: 8,
-      right: 8,
-      backgroundColor: "rgba(0,0,0,0.55)",
-      borderRadius: 999,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-    },
-    badgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-    favBadge: {
-      position: "absolute",
-      top: 8,
-      left: 8,
-      backgroundColor: "rgba(0,0,0,0.55)",
-      borderRadius: 999,
-      width: 22,
-      height: 22,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    favBadgeText: { color: "#F5B83D", fontSize: 12, lineHeight: 14 },
-    pendingBadge: {
-      position: "absolute",
-      bottom: 8,
-      left: 8,
-      backgroundColor: "rgba(0,0,0,0.45)",
-      borderRadius: 999,
-      paddingHorizontal: 7,
-      paddingVertical: 1,
-    },
-    pendingBadgeText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-    cardBody: { padding: 12, gap: 5 },
-    cardTitle: { fontSize: 14.5, fontWeight: "600", color: c.text, lineHeight: 19 },
-    cardDetail: { fontSize: 12, color: c.dim },
-    cardWhen: { fontSize: 11, color: c.dim, marginTop: 2 },
+    folderName: { fontSize: 15.5, fontWeight: "700", color: c.text },
+    folderCount: { fontSize: 12.5, color: c.dim, marginTop: 2 },
+    // capture bar
     captureBar: {
       flexDirection: "row",
       alignItems: "center",
@@ -623,8 +486,11 @@ function createStyles(c: ThemeColors) {
       justifyContent: "center",
     },
     saveFabText: { color: c.onAccent, fontSize: 24, fontWeight: "700", marginTop: -2 },
+    // empty + snackbar
     empty: { flex: 1, padding: 32, justifyContent: "center", gap: 10 },
     emptyTitle: { fontSize: 20, fontWeight: "700", color: c.text, textAlign: "center" },
+    emptyBody: { fontSize: 15, color: c.dim, textAlign: "center", lineHeight: 22 },
+    emptyBold: { fontWeight: "700", color: c.text },
     demoBtn: {
       alignSelf: "center",
       backgroundColor: c.surface,
@@ -636,9 +502,6 @@ function createStyles(c: ThemeColors) {
       marginTop: 4,
     },
     demoBtnText: { color: c.accent, fontWeight: "700", fontSize: 14 },
-    emptyBody: { fontSize: 15, color: c.dim, textAlign: "center", lineHeight: 22 },
-    emptyBold: { fontWeight: "700", color: c.text },
-    noResults: { color: c.dim, textAlign: "center", marginTop: 24, fontSize: 14 },
     snackbar: {
       position: "absolute",
       bottom: 88,
