@@ -34,17 +34,7 @@
           "imageWidth": 96
         }
       ],
-      [
-        "expo-share-intent",
-        {
-          "iosActivationRules": {
-            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
-            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
-            "NSExtensionActivationSupportsText": true
-          },
-          "androidIntentFilters": ["text/*"]
-        }
-      ]
+      "./plugins/with-android-share-target"
     ],
     "experiments": {
       "typedRoutes": true,

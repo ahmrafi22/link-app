@@ -1,5 +1,4 @@
 import { Stack, ThemeProvider } from "expo-router";
-import { ShareIntentProvider } from "expo-share-intent";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, Text, View, useColorScheme } from "react-native";
 
@@ -32,10 +31,8 @@ export default function RootLayout() {
         },
       }}
     >
-      <ShareIntentProvider>
-        <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg } }} />
-      </ShareIntentProvider>
+      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg } }} />
     </ThemeProvider>
   );
 }

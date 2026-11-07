@@ -1,9 +1,9 @@
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
-import { useShareIntentContext } from "expo-share-intent";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  AppState,
   FlatList,
   KeyboardAvoidingView,
   Linking,
@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
 import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -25,8 +26,6 @@ export default function InboxScreen() {
   const styles = useMemo(() => createStyles(c), [c]);
 
   const { items, loaded, add, remove } = useVault();
-  const { hasShareIntent, shareIntent, resetShareIntent, error } =
-    useShareIntentContext();
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -44,32 +43,34 @@ export default function InboxScreen() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  // receive shared links/text from the share sheet
+  // Drain the share inbox written by the native silent share target. Shares
+  // land in a file while we're backgrounded; import them whenever the app
+  // comes to the foreground. Gated on `loaded` so we never merge into an
+  // empty list before AsyncStorage has restored the vault.
   useEffect(() => {
-    if (!hasShareIntent || !shareIntent) return;
-    const { webUrl, text, meta } = shareIntent;
-    if (webUrl || text) {
-      const result = add({
-        webUrl: webUrl ?? null,
-        text: text ?? null,
-        title: meta?.title ?? null,
-      });
-      if (result) {
-        flash(
-          result.duplicate
-            ? `Already in your vault — ${result.item.seenCount} saves`
-            : "Saved to your vault"
-        );
+    if (!loaded) return;
+    const drain = async () => {
+      const entries = await drainInbox();
+      if (entries.length === 0) return;
+      let saved = 0;
+      let duplicates = 0;
+      for (const entry of entries) {
+        const result = add(inboxEntryToShareInput(entry));
+        if (!result) continue;
+        if (result.duplicate) duplicates += 1;
+        else saved += 1;
       }
-    } else if (shareIntent.files?.length) {
-      flash("Only links and text are saved");
-    }
-    resetShareIntent();
-  }, [hasShareIntent, shareIntent, resetShareIntent, add, flash]);
-
-  useEffect(() => {
-    if (error) flash(`Share failed: ${error}`);
-  }, [error, flash]);
+      const parts: string[] = [];
+      if (saved > 0) parts.push(`Saved ${saved} shared item${saved === 1 ? "" : "s"}`);
+      if (duplicates > 0) parts.push(`${duplicates} already saved`);
+      if (parts.length > 0) flash(parts.join(" · "));
+    };
+    void drain();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void drain();
+    });
+    return () => sub.remove();
+  }, [loaded, add, flash]);
 
   // filter chips: everything actually present in the vault, first-seen order
   const filters = useMemo(() => {
@@ -289,8 +290,8 @@ function EmptyState({ styles }: { styles: ReturnType<typeof createStyles> }) {
       <Text style={styles.emptyTitle}>Your vault is empty</Text>
       <Text style={styles.emptyBody}>
         In any app — X, Instagram, YouTube, your browser — tap Share and choose{" "}
-        <Text style={styles.emptyBold}>Link Vault</Text>. The link lands here. You can
-        also paste one below.
+        <Text style={styles.emptyBold}>Link Vault</Text>. It saves the link with a quick
+        toast and you stay right where you were. You can also paste one below.
       </Text>
     </View>
   );
