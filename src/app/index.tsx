@@ -1,5 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -263,7 +264,7 @@ export default function InboxScreen() {
               <ItemCard
                 item={item}
                 styles={styles}
-                onPress={() => (item.url ? void openLink(item.url) : showMenu(item))}
+                onPress={() => router.push(`/item/${item.id}`)}
                 onLongPress={() => showMenu(item)}
               />
             )}
