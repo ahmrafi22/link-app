@@ -344,7 +344,9 @@ Decisions locked during Phase 2 (mobile). Supersede the conflicting notes above.
 - Future screenshots: image bytes stay on-device; only the extracted/OCR'd text syncs to the DB.
 - Side effects: Supabase egress drops sharply (no image traffic through Supabase), and the 50 MB/file + 1 GB Storage free-tier lines above become irrelevant.
 
-**Phase ① kickoff checklist (2026-11-07, agreed — start on user's "go") — steps 1–3 DONE**
+**Phase ① kickoff checklist (2026-11-07 — ✅ COMPLETE, same day)**
+
+Deployment: **https://web-two-lake-29.vercel.app** (Vercel Hobby, Root Directory `apps/web`). Supabase project `rqbitdqgefjoyhcuagcw` with both migrations applied; env vars `APP_SECRET` + `SUPABASE_URL` + `SUPABASE_SECRET_KEY` set in Vercel. Smoke test passed 2026-11-07: health `supabase:"ok"`, capture 201 with platform detect + tracking-param strip + `capturedAt` honored, dedupe bumped `seen_count`, list OK; test row deleted afterwards.
 
 Baseline when this was written: mobile at v0.4.1 on `main` (build-15 green), share capture + on-device extraction + folders/canvas UI shipped. User confirmed extraction works on-device.
 
