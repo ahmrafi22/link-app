@@ -1,7 +1,7 @@
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -20,9 +20,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createCardStyles, MasonryGrid } from "@/components/cards";
+import { getApiConfig } from "@/lib/api";
 import { DEMO_URLS, enrichLinks, selectEnrichTargets } from "@/lib/extract";
 import { folderLabel, foldersFromItems, type Folder } from "@/lib/folders";
 import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
+import { noteItemDeleted, syncVault } from "@/lib/sync";
 import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -33,12 +35,14 @@ export default function InboxScreen() {
     [c]
   );
 
-  const { items, loaded, add, remove, updateMany, itemsRef } = useVault();
+  const { items, loaded, add, remove, updateMany, toggleFavorite, applyAll, reload, itemsRef } =
+    useVault();
 
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   const [fetchingCount, setFetchingCount] = useState(0);
+  const [syncOn, setSyncOn] = useState(false);
 
   const flash = useCallback((text: string) => {
     setNotice({ id: Date.now(), text });
@@ -79,6 +83,41 @@ export default function InboxScreen() {
     }
   }, [itemsRef, updateMany, flash]);
 
+  // Background sync round (Phase ②): upload the outbox, pull server items,
+  // replay deletes. Silent when nothing changed or no server is configured.
+  const syncingRef = useRef(false);
+  const runSync = useCallback(async () => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    try {
+      const res = await syncVault(itemsRef.current);
+      if ("skipped" in res) return;
+      applyAll(res.next);
+      const parts: string[] = [];
+      if (res.uploaded > 0) parts.push(`↑${res.uploaded} synced`);
+      if (res.pulled > 0) parts.push(`↓${res.pulled} from server`);
+      if (res.failed > 0) parts.push(`${res.failed} failed`);
+      if (parts.length > 0) flash(parts.join(" · "));
+    } finally {
+      syncingRef.current = false;
+    }
+  }, [itemsRef, applyAll, flash]);
+
+  // Refresh from storage + config whenever the screen regains focus
+  // (Settings may have saved a server or run a sync).
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void reload();
+      void getApiConfig().then((cfg) => {
+        if (!cancelled) setSyncOn(Boolean(cfg));
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [reload])
+  );
+
   useEffect(() => {
     if (!loaded) return;
     const drain = async () => {
@@ -97,6 +136,7 @@ export default function InboxScreen() {
         if (duplicates > 0) parts.push(`${duplicates} already saved`);
         if (parts.length > 0) flash(parts.join(" · "));
       }
+      await runSync();
       void runEnrichment();
     };
     void drain();
@@ -104,7 +144,7 @@ export default function InboxScreen() {
       if (state === "active") void drain();
     });
     return () => sub.remove();
-  }, [loaded, add, flash, runEnrichment]);
+  }, [loaded, add, flash, runSync, runEnrichment]);
 
   // one folder per platform present, plus All / Starred / Notes
   const folders = useMemo(() => foldersFromItems(items), [items]);
@@ -141,6 +181,7 @@ export default function InboxScreen() {
   const confirmDelete = useCallback(
     (item: VaultItem) => {
       remove(item.id);
+      void noteItemDeleted(item);
       flash("Deleted");
     },
     [remove, flash]
@@ -189,6 +230,7 @@ export default function InboxScreen() {
   }, [add, flash, runEnrichment]);
 
   const linkCount = items.filter((i) => i.kind === "link").length;
+  const unsyncedCount = items.filter((i) => !i.serverId).length;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right", "bottom"]}>
@@ -197,21 +239,33 @@ export default function InboxScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.header}>
+          <View style={styles.headerMain}>
+            <Pressable
+              onLongPress={() => router.push("/diagnostics")}
+              delayLongPress={400}
+              accessibilityRole="button"
+              accessibilityLabel="Vault"
+            >
+              <Text style={styles.title}>Vault</Text>
+            </Pressable>
+            <Text style={styles.subtitle}>
+              {loaded
+                ? `${items.length} saved${linkCount !== items.length ? ` · ${linkCount} links` : ""}${
+                    fetchingCount > 0 ? ` · fetching ${fetchingCount}…` : ""
+                  }${
+                    syncOn && unsyncedCount > 0 ? ` · ${unsyncedCount} to sync` : ""
+                  } · v${Constants.expoConfig?.version ?? "?"}`
+                : "Loading…"}
+            </Text>
+          </View>
           <Pressable
-            onLongPress={() => router.push("/diagnostics")}
-            delayLongPress={400}
+            style={({ pressed }) => [styles.gearBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => router.push("/settings")}
             accessibilityRole="button"
-            accessibilityLabel="Vault"
+            accessibilityLabel="Settings"
           >
-            <Text style={styles.title}>Vault</Text>
+            <Text style={styles.gear}>⚙</Text>
           </Pressable>
-          <Text style={styles.subtitle}>
-            {loaded
-              ? `${items.length} saved${linkCount !== items.length ? ` · ${linkCount} links` : ""}${
-                  fetchingCount > 0 ? ` · fetching ${fetchingCount}…` : ""
-                } · v${Constants.expoConfig?.version ?? "?"}`
-              : "Loading…"}
-          </Text>
         </View>
 
         <View style={styles.searchRow}>
@@ -412,8 +466,23 @@ function createStyles(c: ThemeColors) {
       paddingHorizontal: 20,
       paddingTop: 12,
       paddingBottom: 10,
-      gap: 2,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 10,
     },
+    headerMain: { flex: 1, gap: 2 },
+    gearBtn: {
+      marginTop: 6,
+      width: 38,
+      height: 38,
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    gear: { fontSize: 18, color: c.text },
     title: { fontSize: 32, fontWeight: "800", color: c.text, letterSpacing: -0.8 },
     subtitle: { fontSize: 13, color: c.dim },
     body: { paddingHorizontal: 20, paddingBottom: 24, gap: 4 },
