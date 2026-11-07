@@ -4,13 +4,63 @@ import Constants from "expo-constants";
 import { detectPlatform, normalizeUrl, type VaultItem } from "./store";
 
 /**
- * On-device extraction — the device-assisted half of the plan's hybrid model.
- * The phone has a residential IP, so it can fetch what a datacenter server
- * cannot (Reddit JSON, many OG tags). Everything is size-capped and cached;
- * the server later merges these fields with its own waterfall.
+ * ============================================================================
+ * CORE EXTRACTION — the heart of Link Vault. Working on-device since v0.3.1.
+ * Read this block before touching anything here, and re-verify with the
+ * Diagnostics self-test (hold "Vault" title → Run self-test) before shipping.
+ * ============================================================================
  *
- * No anti-bot evasion, no login-walled content: X/Instagram/Facebook are
- * expected to stay `url_only` here.
+ * The phone fetches everything itself — the device-assisted half of the
+ * plan's hybrid model. The phone has a residential IP, so it reaches sources
+ * a datacenter server cannot (Reddit JSON, social OG). Every extracted field
+ * (title/description/thumbnailUrl/siteName/meta + enrichmentLevel) later
+ * merges into the server as `client_extracted`.
+ *
+ * WATERFALL (each rung was verified live — do not reorder without retesting):
+ *
+ *   1. Platform fetchers, dispatched by detectPlatform():
+ *        youtube → oEmbed (title, author, thumbnail — no key needed)
+ *        x       → api.fxtwitter.com/i/status/:id (public API: tweet text,
+ *                  author, likes, photo URLs, video poster frames — no login)
+ *        reddit  → <post>.json (works from residential IPs; datacenter IPs
+ *                  get 403 — the reason this runs on the phone)
+ *        tiktok  → oEmbed
+ *        github  → api.github.com/repos (description, stars, language)
+ *   2. Instagram / Facebook / Threads → fetch with PREVIEW_UA
+ *      (facebookexternalhit). These platforms serve their FULL Open-Graph
+ *      data — og:image, og:description, follower counts — to link-preview
+ *      agents, because that is how WhatsApp/Facebook build link previews.
+ *      This is the official no-login pathway (verified: profile avatars and
+ *      public-post images). Private/deleted posts return a stub — that is
+ *      the platform's wall, not a bug.
+ *   3. Any other URL → generic Open Graph with BROWSER_UA (normal websites).
+ *   4. Last resort → a url_only result gets one retry with PREVIEW_UA
+ *      (some sites only talk to preview bots).
+ *
+ * INVARIANTS — breaking any of these silently kills all capture
+ * (each of these was a real bug that shipped and blocked every thumbnail):
+ *
+ *   - fetchText() must NOT pass `signal` to fetch: several RN Android
+ *     release runtimes reject signal'd fetches outright. Timeout is a
+ *     Promise.race — never AbortController here.
+ *   - fetchText() must NOT gate on content-type: missing/mangled headers on
+ *     some devices zeroed every response. The JSON/OG parsers tolerate
+ *     garbage bodies.
+ *   - CACHE_KEY embeds the app version, so every APK update starts with a
+ *     clean cache. Deliberate: a cached negative result used to block all
+ *     retries for a day after each install.
+ *   - thumbnailUrl is upgraded to https before caching: Android release
+ *     builds silently refuse cleartext images.
+ *   - enrichLinks() applies each result the moment it lands (the grid fills
+ *     in progressively) and one failing link never aborts the queue.
+ *
+ * Ethics (plan rule): no anti-bot evasion, no login-walled content, no
+ * cookies/credentials. The preview-UA pathway only reads what the platforms
+ * themselves publish to link-preview bots for public content.
+ *
+ * Observability: every network attempt is appended to the on-device fetch
+ * log (readFetchLog) and shown in Vault (long-press title) → Diagnostics,
+ * together with the self-test and per-link report.
  */
 
 export type EnrichmentLevel = "full" | "metadata" | "url_only";
