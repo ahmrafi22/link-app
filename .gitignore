@@ -1,0 +1,19 @@
+# deps / builds
+node_modules/
+.next/
+.vercel/
+android/
+
+# env secrets — only .env.example is ever committed
+.env
+.env.*
+!.env.example
+
+# OS / logs
+.DS_Store
+*.log
+
+# local ZCode agent tooling (not part of the app)
+plugins/
+.zcodeignore
+.zcode-write-probe
