@@ -137,6 +137,15 @@ export default function ItemDetailScreen() {
   const domain = domainOf(item);
   const tile = platformTile(item.platform, item.kind);
   const metaRows: Array<[string, string]> = [];
+  if (item.kind === "link") {
+    // diagnostics: shows whether data was fetched, and how many times it timed out
+    metaRows.push([
+      "Page data",
+      `${levelLabel(item)}${
+        item.enrichAttempts > 0 ? ` · ${item.enrichAttempts} timeouts` : ""
+      }`,
+    ]);
+  }
   if (item.siteName) metaRows.push(["Source", item.siteName]);
   if (domain) metaRows.push(["Domain", domain]);
   if (item.meta) {
