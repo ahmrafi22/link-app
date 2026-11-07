@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   AppState,
-  FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -273,27 +272,34 @@ export default function InboxScreen() {
         {loaded && items.length === 0 ? (
           <EmptyState styles={styles} />
         ) : (
-          <FlatList
-            data={filtered}
-            keyExtractor={(i) => i.id}
-            numColumns={2}
-            columnWrapperStyle={styles.column}
+          <ScrollView
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={
+          >
+            {filtered.length === 0 ? (
               <Text style={styles.noResults}>
                 Nothing matches “{search.trim()}”.
               </Text>
-            }
-            renderItem={({ item }) => (
-              <ItemCard
-                item={item}
-                styles={styles}
-                onPress={() => router.push(`/item/${item.id}`)}
-                onLongPress={() => showMenu(item)}
-              />
+            ) : (
+              <View style={styles.masonry}>
+                {[0, 1].map((col) => (
+                  <View key={col} style={styles.masonryCol}>
+                    {filtered
+                      .filter((_, i) => i % 2 === col)
+                      .map((item) => (
+                        <ItemCard
+                          key={item.id}
+                          item={item}
+                          styles={styles}
+                          onPress={() => router.push(`/item/${item.id}`)}
+                          onLongPress={() => showMenu(item)}
+                        />
+                      ))}
+                  </View>
+                ))}
+              </View>
             )}
-          />
+          </ScrollView>
         )}
 
         <View style={styles.captureBar}>
@@ -384,7 +390,7 @@ function ItemCard({
   );
 }
 
-/** Tile with the captured thumbnail when we have one, colored glyph otherwise. */
+/** Tile with the captured thumbnail at its natural shape; colored glyph otherwise. */
 function CardTile({
   item,
   styles,
@@ -393,22 +399,64 @@ function CardTile({
   styles: ReturnType<typeof createStyles>;
 }) {
   const [broken, setBroken] = useState(false);
+  const [ratio, setRatio] = useState<number | null>(null);
   const tile = platformTile(item.platform, item.kind);
-  const showImage = item.thumbnailUrl && !broken;
-  return (
-    <View style={[styles.tile, !showImage && { backgroundColor: tile.bg }]}>
-      {showImage ? (
-        <Image
-          source={{ uri: item.thumbnailUrl! }}
-          style={styles.tileImage}
-          resizeMode="cover"
-          onError={() => setBroken(true)}
-        />
-      ) : (
+  const showImage = !!item.thumbnailUrl && !broken;
+
+  useEffect(() => {
+    setBroken(false);
+    setRatio(null);
+    if (!item.thumbnailUrl) return;
+    let alive = true;
+    Image.getSize(
+      item.thumbnailUrl,
+      (w, h) => {
+        if (alive && w > 0 && h > 0) setRatio(w / h);
+      },
+      () => {}
+    );
+    return () => {
+      alive = false;
+    };
+  }, [item.thumbnailUrl]);
+
+  if (!showImage) {
+    return (
+      <View style={[styles.tile, { backgroundColor: tile.bg }]}>
         <Text style={[styles.tileGlyph, tile.glyph.length > 1 && styles.tileGlyphSmall]}>
           {tile.glyph}
         </Text>
-      )}
+        <TileBadges item={item} styles={styles} />
+      </View>
+    );
+  }
+
+  // vertical images get a tall tile (clamped so extreme reels don't take over)
+  const tileStyle =
+    ratio != null ? [styles.tileFlex, { aspectRatio: Math.min(Math.max(ratio, 0.75), 2.4) }] : styles.tile;
+
+  return (
+    <View style={tileStyle}>
+      <Image
+        source={{ uri: item.thumbnailUrl! }}
+        style={styles.tileImage}
+        resizeMode="cover"
+        onError={() => setBroken(true)}
+      />
+      <TileBadges item={item} styles={styles} />
+    </View>
+  );
+}
+
+function TileBadges({
+  item,
+  styles,
+}: {
+  item: VaultItem;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <>
       {item.kind === "link" && !item.enrichmentLevel && (
         <View style={styles.pendingBadge}>
           <Text style={styles.pendingBadgeText}>…</Text>
@@ -424,7 +472,7 @@ function CardTile({
           <Text style={styles.badgeText}>×{item.seenCount}</Text>
         </View>
       )}
-    </View>
+    </>
   );
 }
 
@@ -476,9 +524,9 @@ function createStyles(c: ThemeColors) {
       color: c.text,
     },
     listContent: { gap: 12, paddingHorizontal: 20, paddingBottom: 24, paddingTop: 2 },
-    column: { gap: 12 },
+    masonry: { flexDirection: "row", gap: 12 },
+    masonryCol: { flex: 1, gap: 12 },
     card: {
-      flex: 1,
       backgroundColor: c.surface,
       borderRadius: 20,
       overflow: "hidden",
@@ -488,6 +536,12 @@ function createStyles(c: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
+    },
+    tileFlex: {
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      width: "100%",
     },
     tileImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
     tileGlyph: { fontSize: 32, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },

@@ -63,6 +63,24 @@ export default function ItemDetailScreen() {
 
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [heroRatio, setHeroRatio] = useState<number | null>(null);
+
+  const thumbnailUrl = item?.thumbnailUrl ?? null;
+  useEffect(() => {
+    setHeroRatio(null);
+    if (!thumbnailUrl) return;
+    let alive = true;
+    Image.getSize(
+      thumbnailUrl,
+      (w, h) => {
+        if (alive && w > 0 && h > 0) setHeroRatio(w / h);
+      },
+      () => {}
+    );
+    return () => {
+      alive = false;
+    };
+  }, [thumbnailUrl]);
 
   useEffect(() => {
     if (!notice) return;
@@ -189,7 +207,7 @@ export default function ItemDetailScreen() {
         </View>
 
         {item.thumbnailUrl ? (
-          <View style={styles.hero}>
+          <View style={[styles.hero, heroRatio != null && { aspectRatio: Math.min(Math.max(heroRatio, 0.6), 3) }]}>
             <Image
               source={{ uri: item.thumbnailUrl }}
               style={styles.heroImage}
@@ -295,6 +313,22 @@ export default function ItemDetailScreen() {
           ))}
         </View>
 
+        <View style={styles.metaCard}>
+          <View style={styles.rawHeader}>
+            <Text style={styles.rawTitle}>All captured data (alpha)</Text>
+            <Text style={styles.rawHint}>every field currently held for this item</Text>
+          </View>
+          {flattenItem(item).map(([key, value], i) => (
+            <View
+              key={`${key}-${i}`}
+              style={styles.rawRow}
+            >
+              <Text style={styles.rawKey}>{key}</Text>
+              <Text style={styles.rawValue}>{value}</Text>
+            </View>
+          ))}
+        </View>
+
         {notice ? (
           <View style={styles.snackbar} pointerEvents="none">
             <Text style={styles.snackbarText}>{notice}</Text>
@@ -337,6 +371,27 @@ function MetaRow({
   );
 }
 
+/** Every field on the item, flat — the alpha "see inside" view. */
+function flattenItem(item: VaultItem): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(item)) {
+    if (value !== null && typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (entries.length === 0) {
+        rows.push([key, "{}"]);
+        continue;
+      }
+      for (const [k2, v2] of entries) rows.push([`${key}.${k2}`, String(v2)]);
+    } else {
+      rows.push([
+        key,
+        value === null || value === undefined || value === "" ? "—" : String(value),
+      ]);
+    }
+  }
+  return rows;
+}
+
 function createStyles(c: ThemeColors) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.bg },
@@ -352,11 +407,11 @@ function createStyles(c: ThemeColors) {
     star: { fontSize: 24, color: c.dim, paddingHorizontal: 8 },
     starActive: { color: "#F5B83D" },
     hero: {
-      height: 190,
       borderRadius: 20,
       overflow: "hidden",
       alignItems: "center",
       justifyContent: "center",
+      height: 190,
     },
     heroImage: { width: "100%", height: "100%" } as ImageStyle,
     heroFallback: { height: 120 },
@@ -409,6 +464,20 @@ function createStyles(c: ThemeColors) {
     metaLabel: { width: 92, fontSize: 13, color: c.dim, fontWeight: "600" },
     metaValue: { flex: 1, fontSize: 13.5, color: c.text, lineHeight: 19 },
     metaLink: { color: c.accent },
+    rawHeader: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4, gap: 2 },
+    rawTitle: { fontSize: 12, fontWeight: "700", color: c.dim, textTransform: "uppercase" },
+    rawHint: { fontSize: 11.5, color: c.dim },
+    rawRow: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+      flexDirection: "row",
+      gap: 12,
+      alignItems: "flex-start",
+    },
+    rawKey: { width: 110, fontSize: 11.5, color: c.dim, fontWeight: "600", paddingTop: 1 },
+    rawValue: { flex: 1, fontSize: 12, color: c.text, lineHeight: 17 },
     snackbar: {
       position: "absolute",
       bottom: 24,
