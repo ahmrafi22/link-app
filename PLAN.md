@@ -344,18 +344,18 @@ Decisions locked during Phase 2 (mobile). Supersede the conflicting notes above.
 - Future screenshots: image bytes stay on-device; only the extracted/OCR'd text syncs to the DB.
 - Side effects: Supabase egress drops sharply (no image traffic through Supabase), and the 50 MB/file + 1 GB Storage free-tier lines above become irrelevant.
 
-**Phase ① kickoff checklist (2026-11-07, agreed — start on user's "go")**
+**Phase ① kickoff checklist (2026-11-07, agreed — start on user's "go") — steps 1–3 DONE**
 
 Baseline when this was written: mobile at v0.4.1 on `main` (build-15 green), share capture + on-device extraction + folders/canvas UI shipped. User confirmed extraction works on-device.
 
-1. **Repo restructure → monorepo** (the git root is currently `final/apps/mobile`; PLAN.md sits outside it at `final/PLAN.md`):
-   - Lift repo root one level so it contains `apps/mobile` + `apps/web` (move `.git` up, commit the rename, history + remote `ahmrafi22/link-app` preserved).
-   - Move `.github/workflows/build-apk.yml` to repo root with `working-directory: apps/mobile` + `paths:` filter (mobile builds only on mobile changes).
-   - Bring `PLAN.md` under version control at the repo root.
-2. **`apps/web` skeleton**: Next.js App Router, `POST /api/captures` + `GET /api/health` with `APP_SECRET` bearer auth, committed `.env.example` (dummy values only).
-3. **Supabase migrations** as SQL files in the repo (items, fetch_cache, categories, feedback_events, pgvector + HNSW, match RPC) — user pastes into Supabase SQL editor. Secrets NEVER in the repo.
-4. **User pre-work already agreed**: create Supabase project (→ `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`), Vercel account (Hobby), Gemini key (`GEMINI_API_KEY`, needed only at Phase ④). Vercel: import repo, **Root Directory = `apps/web`**, env vars = `APP_SECRET` (I generate the value at kickoff) + the three above. All secrets live only in Vercel env vars — never in chat, repo, or APK.
-5. Smoke test: `curl` health + a capture POST against the deployed URL; then Phase ② (mobile sync/outbox/Settings screen).
+1. ✅ **Repo restructure → monorepo** — DONE (branch `chore/monorepo-restructure`, merged; build-16 green on the moved workflow):
+   - Repo root lifted: mobile app now at `apps/mobile`, all files 100% renames (history follows), remote `ahmrafi22/link-app` unchanged.
+   - `.github/workflows/build-apk.yml` moved to repo root with `working-directory: apps/mobile` + `paths:` filter — verified: web-only merges to main skip the APK build.
+   - `PLAN.md` now under version control at the repo root.
+2. ✅ **`apps/web` skeleton** — DONE (branch `feat/web-api-skeleton`, merged): Next.js 16 App Router; `GET /api/health` (config report + Supabase ping); `POST /api/captures` (bearer auth timing-safe, tracking-param URL normalize, `url_hash` dedupe → bumps `seen_count`, accepts `clientExtracted` → `full_device`/`metadata`, 503 until Supabase env set); `GET /api/captures?state=&limit=`; `.env.example` placeholders only. Locally smoke-tested: 401/400/503 ladder verified.
+3. ✅ **Supabase migrations** — DONE (branch `feat/supabase-migrations`, merged): `supabase/migrations/0001_core_schema.sql` (4 tables, pgvector 768d + HNSW, FTS generated column, RLS enabled, no policies) and `0002_search_rpc.sql` (`match_items` RRF hybrid + `related_items`). User pastes both into the Supabase SQL editor in order.
+4. ⬜ **User pre-work (the user's turn now)**: create Supabase project (→ `SUPABASE_URL` + service-role key), Vercel Hobby account, Gemini key (only needed at Phase ④). Vercel: import repo, **Root Directory = `apps/web`**, env vars: `APP_SECRET` (value handed to user at kickoff — keep it out of the repo), `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (service role). All secrets live only in Vercel env vars — never in the repo, never in the APK.
+5. ⬜ **Smoke test**: `curl` health + a capture POST against the deployed URL; then Phase ② (mobile sync/outbox/Settings screen).
 
 
 
