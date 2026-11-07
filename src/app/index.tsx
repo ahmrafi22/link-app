@@ -310,7 +310,10 @@ function EmptyState({
   );
 }
 
-/** Folder tile: fanned thumbnails peeking out of a pocket, name + count. */
+/**
+ * Folder tile, glassmorphism: thumbnails peek out of a frosted pocket,
+ * name + count centered below (stamp-album style).
+ */
 function FolderCard({
   folder,
   styles,
@@ -322,15 +325,16 @@ function FolderCard({
 }) {
   const noun =
     folder.key === "note" ? "note" : folder.key === "starred" ? "item" : "link";
-  const nounPlural = folder.key === "note" ? "notes" : folder.key === "starred" ? "items" : "links";
+  const nounPlural =
+    folder.key === "note" ? "notes" : folder.key === "starred" ? "items" : "links";
   const top = folder.items.slice(0, 3);
   const tile = platformTile(folder.key === "note" ? "note" : folder.key, "link");
 
-  // fan layout for 1 / 2 / 3 thumbnails
+  // fan layouts: thumbnails poke out of the pocket's top edge
   const placements = [
-    { left: 10, top: 24, rot: -8, z: 1 },
-    { right: 10, top: 24, rot: 8, z: 1 },
-    { left: "50%" as const, marginLeft: -42, top: 28, rot: -2, z: 5 },
+    { left: 14, top: 8, rot: -10, z: 1 },
+    { right: 14, top: 8, rot: 10, z: 1 },
+    { left: "50%" as const, marginLeft: -36, top: 10, rot: -2, z: 2 },
   ];
   const used =
     top.length === 1 ? [placements[2]] : top.length === 2 ? [placements[0], placements[1]] : placements;
@@ -343,48 +347,54 @@ function FolderCard({
       accessibilityLabel={`${folderLabel(folder.key)} folder, ${folder.items.length} items`}
     >
       <View style={styles.folderVisual}>
-        {top.length === 0 ? (
-          <View style={styles.folderGlyphWrap}>
-            <Text style={[styles.folderGlyph, { backgroundColor: tile.bg }]}>
-              {tile.glyph}
-            </Text>
+        {top.map((item, i) => {
+          const p = used[i];
+          const rot = { transform: [{ rotate: `${p.rot}deg` }] };
+          const pos =
+            p.left != null ? { left: p.left, marginLeft: p.marginLeft } : { right: p.right };
+          return (
+            <View
+              key={item.id}
+              style={[styles.folderThumb, pos as object, rot, { zIndex: p.z, elevation: p.z }]}
+            >
+              {item.thumbnailUrl ? (
+                <Image
+                  source={{ uri: item.thumbnailUrl }}
+                  style={styles.folderThumbImg}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.folderThumbImg,
+                    styles.folderThumbGlyph,
+                    { backgroundColor: platformTile(item.platform, item.kind).bg },
+                  ]}
+                >
+                  <Text style={styles.folderThumbGlyphText}>
+                    {platformTile(item.platform, item.kind).glyph}
+                  </Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
+        {top.length === 0 && (
+          <View
+            style={[
+              styles.folderThumb,
+              { left: "50%", marginLeft: -36, top: 10, zIndex: 2, elevation: 2 },
+            ]}
+          >
+            <View style={[styles.folderThumbImg, styles.folderThumbGlyph, { backgroundColor: tile.bg }]}>
+              <Text style={styles.folderThumbGlyphText}>{tile.glyph}</Text>
+            </View>
           </View>
-        ) : (
-          top.map((item, i) => {
-            const p = used[i];
-            const rot = { transform: [{ rotate: `${p.rot}deg` }] };
-            const pos =
-              p.left != null
-                ? { left: p.left, marginLeft: p.marginLeft }
-                : { right: p.right };
-            return (
-              <View
-                key={item.id}
-                style={[styles.folderThumb, pos as object, rot, { zIndex: p.z, elevation: p.z }]}
-              >
-                {item.thumbnailUrl ? (
-                  <Image
-                    source={{ uri: item.thumbnailUrl }}
-                    style={styles.folderThumbImg}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.folderThumbImg,
-                      styles.folderThumbGlyph,
-                      { backgroundColor: platformTile(item.platform, item.kind).bg },
-                    ]}
-                  >
-                    <Text style={styles.folderThumbGlyphText}>
-                      {platformTile(item.platform, item.kind).glyph}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            );
-          })
         )}
+        {/* frosted pocket — overlaps the thumbnails' lower half */}
+        <View style={styles.glassPocket} pointerEvents="none">
+          <View style={styles.glassHighlight} />
+        </View>
       </View>
       <Text style={styles.folderName}>{folderLabel(folder.key)}</Text>
       <Text style={styles.folderCount}>
@@ -419,52 +429,57 @@ function createStyles(c: ThemeColors) {
       color: c.text,
     },
     noResults: { color: c.dim, textAlign: "center", marginTop: 24, fontSize: 14 },
-    // folder grid
-    folderWrap: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+    // folder grid — glassmorphism pockets, no card chrome
+    folderWrap: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
     folderCard: {
       flexGrow: 1,
       flexBasis: "46%",
-      backgroundColor: c.surface,
-      borderRadius: 20,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: c.border,
+      alignItems: "center",
+      paddingBottom: 6,
     },
     folderVisual: {
-      height: 112,
-      borderRadius: 14,
-      backgroundColor: c.surfaceAlt,
-      overflow: "hidden",
-      marginBottom: 10,
+      width: "100%",
+      height: 122,
+      marginBottom: 8,
     },
     folderThumb: {
       position: "absolute",
-      width: 84,
-      height: 64,
+      width: 72,
+      height: 58,
       borderRadius: 9,
       overflow: "hidden",
       borderWidth: 2,
-      borderColor: c.surface,
+      borderColor: "rgba(255,255,255,0.92)",
       backgroundColor: c.surfaceAlt,
     },
     folderThumbImg: { width: "100%", height: "100%" },
     folderThumbGlyph: { alignItems: "center", justifyContent: "center" },
-    folderThumbGlyphText: { fontSize: 20, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },
-    folderGlyphWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
-    folderGlyph: {
-      width: 56,
-      height: 40,
-      borderRadius: 9,
-      color: "#FFFFFF",
-      opacity: 0.92,
-      fontSize: 18,
-      fontWeight: "800",
-      textAlign: "center",
-      textAlignVertical: "center",
+    folderThumbGlyphText: { fontSize: 18, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },
+    glassPocket: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 86,
+      borderRadius: 18,
+      backgroundColor: c.glassFill,
+      borderWidth: 1,
+      borderColor: c.glassBorder,
+      zIndex: 5,
+      elevation: 5,
       overflow: "hidden",
     },
-    folderName: { fontSize: 15.5, fontWeight: "700", color: c.text },
-    folderCount: { fontSize: 12.5, color: c.dim, marginTop: 2 },
+    glassHighlight: {
+      position: "absolute",
+      top: 5,
+      left: 14,
+      right: 14,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: c.glassHighlight,
+    },
+    folderName: { fontSize: 15.5, fontWeight: "700", color: c.text, textAlign: "center" },
+    folderCount: { fontSize: 12.5, color: c.dim, marginTop: 2, textAlign: "center" },
     // capture bar
     captureBar: {
       flexDirection: "row",

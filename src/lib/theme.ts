@@ -14,6 +14,10 @@ export type ThemeColors = {
   pillBg: string;
   /** Text/icon color used on top of pillBg. */
   onAccent: string;
+  /** Glassmorphism: frosted panel fill / border / top-edge highlight. */
+  glassFill: string;
+  glassBorder: string;
+  glassHighlight: string;
 };
 
 export const theme: { light: ThemeColors; dark: ThemeColors } = {
@@ -29,6 +33,9 @@ export const theme: { light: ThemeColors; dark: ThemeColors } = {
     danger: "#D64545",
     pillBg: "#17171A",
     onAccent: "#FFFFFF",
+    glassFill: "rgba(255,255,255,0.10)",
+    glassBorder: "rgba(255,255,255,0.18)",
+    glassHighlight: "rgba(255,255,255,0.30)",
   },
   dark: {
     bg: "#0A0A0C",
@@ -42,6 +49,9 @@ export const theme: { light: ThemeColors; dark: ThemeColors } = {
     danger: "#FF5A5A",
     pillBg: "#FFFFFF",
     onAccent: "#0A0A0C",
+    glassFill: "rgba(255,255,255,0.55)",
+    glassBorder: "rgba(255,255,255,0.90)",
+    glassHighlight: "rgba(255,255,255,0.95)",
   },
 };
 
