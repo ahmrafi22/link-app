@@ -95,7 +95,9 @@ export default function InboxScreen() {
   const filters = useMemo(() => {
     const platforms: string[] = [];
     let hasNote = false;
+    let hasFavorite = false;
     for (const i of items) {
+      if (i.favorite) hasFavorite = true;
       if (i.kind === "text") {
         hasNote = true;
       } else {
@@ -103,7 +105,7 @@ export default function InboxScreen() {
         if (!platforms.includes(p)) platforms.push(p);
       }
     }
-    return ["all", ...platforms, ...(hasNote ? ["note"] : [])];
+    return ["all", ...(hasFavorite ? ["starred"] : []), ...platforms, ...(hasNote ? ["note"] : [])];
   }, [items]);
 
   // drop the active chip if its platform no longer exists
@@ -114,6 +116,7 @@ export default function InboxScreen() {
   const filtered = useMemo(() => {
     let list = items;
     if (filter === "note") list = list.filter((i) => i.kind === "text");
+    else if (filter === "starred") list = list.filter((i) => i.favorite);
     else if (filter !== "all")
       list = list.filter(
         (i) => i.kind === "link" && (i.platform ?? "link") === filter
@@ -224,7 +227,13 @@ export default function InboxScreen() {
                   accessibilityState={{ selected: active }}
                 >
                   <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                    {f === "all" ? "All" : f === "note" ? "Notes" : f}
+                    {f === "all"
+                      ? "All"
+                      : f === "note"
+                        ? "Notes"
+                        : f === "starred"
+                          ? "★ Starred"
+                          : f}
                   </Text>
                 </Pressable>
               );
@@ -384,6 +393,11 @@ function CardTile({
           {tile.glyph}
         </Text>
       )}
+      {item.favorite && (
+        <View style={styles.favBadge}>
+          <Text style={styles.favBadgeText}>★</Text>
+        </View>
+      )}
       {item.seenCount > 1 && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>×{item.seenCount}</Text>
@@ -467,6 +481,18 @@ function createStyles(c: ThemeColors) {
       paddingVertical: 2,
     },
     badgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
+    favBadge: {
+      position: "absolute",
+      top: 8,
+      left: 8,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      borderRadius: 999,
+      width: 22,
+      height: 22,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    favBadgeText: { color: "#F5B83D", fontSize: 12, lineHeight: 14 },
     cardBody: { padding: 12, gap: 5 },
     cardTitle: { fontSize: 14.5, fontWeight: "600", color: c.text, lineHeight: 19 },
     cardDetail: { fontSize: 12, color: c.dim },
