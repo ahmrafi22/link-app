@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
@@ -18,14 +18,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
-import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
+import { enrichLinks, selectEnrichTargets } from "@/lib/extract";
+import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
 export default function InboxScreen() {
   const c = useTheme();
   const styles = useMemo(() => createStyles(c), [c]);
 
-  const { items, loaded, add, remove } = useVault();
+  const { items, loaded, add, remove, updateMany, itemsRef } = useVault();
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -47,30 +48,46 @@ export default function InboxScreen() {
   // land in a file while we're backgrounded; import them whenever the app
   // comes to the foreground. Gated on `loaded` so we never merge into an
   // empty list before AsyncStorage has restored the vault.
+  const enrichingRef = useRef(false);
+  const runEnrichment = useCallback(async () => {
+    if (enrichingRef.current) return;
+    const targets = selectEnrichTargets(itemsRef.current);
+    if (targets.length === 0) return;
+    enrichingRef.current = true;
+    try {
+      const updates = await enrichLinks(targets);
+      updateMany(updates);
+    } finally {
+      enrichingRef.current = false;
+    }
+  }, [itemsRef, updateMany]);
+
   useEffect(() => {
     if (!loaded) return;
     const drain = async () => {
       const entries = await drainInbox();
-      if (entries.length === 0) return;
-      let saved = 0;
-      let duplicates = 0;
-      for (const entry of entries) {
-        const result = add(inboxEntryToShareInput(entry));
-        if (!result) continue;
-        if (result.duplicate) duplicates += 1;
-        else saved += 1;
+      if (entries.length > 0) {
+        let saved = 0;
+        let duplicates = 0;
+        for (const entry of entries) {
+          const result = add(inboxEntryToShareInput(entry));
+          if (!result) continue;
+          if (result.duplicate) duplicates += 1;
+          else saved += 1;
+        }
+        const parts: string[] = [];
+        if (saved > 0) parts.push(`Saved ${saved} shared item${saved === 1 ? "" : "s"}`);
+        if (duplicates > 0) parts.push(`${duplicates} already saved`);
+        if (parts.length > 0) flash(parts.join(" · "));
       }
-      const parts: string[] = [];
-      if (saved > 0) parts.push(`Saved ${saved} shared item${saved === 1 ? "" : "s"}`);
-      if (duplicates > 0) parts.push(`${duplicates} already saved`);
-      if (parts.length > 0) flash(parts.join(" · "));
+      void runEnrichment();
     };
     void drain();
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") void drain();
     });
     return () => sub.remove();
-  }, [loaded, add, flash]);
+  }, [loaded, add, flash, runEnrichment]);
 
   // filter chips: everything actually present in the vault, first-seen order
   const filters = useMemo(() => {
