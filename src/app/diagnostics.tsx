@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { clearExtractCache, extractForUrl, readFetchLog, type FetchLogEntry } from "@/lib/extract";
+import { DEMO_URLS, clearExtractCache, extractForUrl, readFetchLog, type FetchLogEntry } from "@/lib/extract";
 import { domainOf, useVault, type VaultItem } from "@/lib/store";
 import { useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -27,6 +27,8 @@ export default function DiagnosticsScreen() {
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<FetchLogEntry[]>([]);
+  const [selfTest, setSelfTest] = useState<Record<string, RowState>>({});
+  const [selfRunning, setSelfRunning] = useState(false);
 
   const refreshLog = useCallback(() => {
     void readFetchLog().then(setLog);
@@ -134,6 +136,38 @@ export default function DiagnosticsScreen() {
     });
   }, []);
 
+  /** Fetch known-good URLs — proves (or refutes) capture on this device. */
+  const runSelfTest = useCallback(async () => {
+    if (selfRunning) return;
+    setSelfRunning(true);
+    for (const url of DEMO_URLS) {
+      setSelfTest((r) => ({ ...r, [url]: { text: "fetching…", kind: "busy" } }));
+      const t0 = Date.now();
+      const outcome = await extractForUrl(url, { force: true });
+      const ms = Date.now() - t0;
+      setSelfTest((r) => ({
+        ...r,
+        [url]:
+          outcome.status === "done"
+            ? {
+                text: `${outcome.result.level} · thumb ${
+                  outcome.result.thumbnailUrl ? "YES" : "none"
+                } · ${ms}ms`,
+                kind: outcome.result.thumbnailUrl ? "ok" : "warn",
+              }
+            : {
+                text:
+                  outcome.status === "timeout"
+                    ? `TIMEOUT · ${ms}ms`
+                    : `NETWORK FAIL · ${ms}ms`,
+                kind: "bad",
+              },
+      }));
+    }
+    setSelfRunning(false);
+    refreshLog();
+  }, [selfRunning, refreshLog]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -165,6 +199,32 @@ export default function DiagnosticsScreen() {
           <Pressable style={styles.secondaryBtn2} onPress={() => void clearCache()}>
             <Text style={styles.secondaryBtnText}>Clear extraction cache</Text>
           </Pressable>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Self-test (known-good links)</Text>
+          <Pressable
+            style={styles.secondaryBtn2}
+            onPress={() => void runSelfTest()}
+            disabled={selfRunning}
+          >
+            <Text style={styles.secondaryBtnText}>
+              {selfRunning ? "Running…" : "Run self-test"}
+            </Text>
+          </Pressable>
+          {DEMO_URLS.map((url) => {
+            const row = selfTest[url];
+            return (
+              <View key={url} style={styles.row}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {url.replace(/^https?:\/\//, "").slice(0, 42)}
+                </Text>
+                <Text style={[styles.line, styles[row?.kind ?? "idle"]]}>
+                  {row?.text ?? "—"}
+                </Text>
+              </View>
+            );
+          })}
         </View>
 
         <View style={styles.card}>

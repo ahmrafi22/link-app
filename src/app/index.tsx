@@ -20,7 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
-import { enrichLinks, selectEnrichTargets } from "@/lib/extract";
+import { DEMO_URLS, enrichLinks, selectEnrichTargets } from "@/lib/extract";
 import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -205,6 +205,12 @@ export default function InboxScreen() {
     void runEnrichment();
   }, [add, draft, flash, runEnrichment]);
 
+  const addDemoLinks = useCallback(() => {
+    for (const url of DEMO_URLS) add({ text: url });
+    flash("Added 3 demo links — fetching their pages…");
+    void runEnrichment();
+  }, [add, flash, runEnrichment]);
+
   const linkCount = items.filter((i) => i.kind === "link").length;
 
   return (
@@ -276,7 +282,7 @@ export default function InboxScreen() {
         </View>
 
         {loaded && items.length === 0 ? (
-          <EmptyState styles={styles} />
+          <EmptyState styles={styles} onDemo={addDemoLinks} />
         ) : (
           <ScrollView
             contentContainerStyle={styles.listContent}
@@ -340,7 +346,13 @@ export default function InboxScreen() {
   );
 }
 
-function EmptyState({ styles }: { styles: ReturnType<typeof createStyles> }) {
+function EmptyState({
+  styles,
+  onDemo,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  onDemo: () => void;
+}) {
   return (
     <View style={styles.empty}>
       <Text style={styles.emptyTitle}>Your vault is empty</Text>
@@ -349,6 +361,9 @@ function EmptyState({ styles }: { styles: ReturnType<typeof createStyles> }) {
         <Text style={styles.emptyBold}>Link Vault</Text>. It saves the link with a quick
         toast and you stay right where you were. You can also paste one below.
       </Text>
+      <Pressable style={styles.demoBtn} onPress={onDemo} accessibilityRole="button">
+        <Text style={styles.demoBtnText}>Add 3 demo links — see capture in action</Text>
+      </Pressable>
     </View>
   );
 }
@@ -610,6 +625,17 @@ function createStyles(c: ThemeColors) {
     saveFabText: { color: c.onAccent, fontSize: 24, fontWeight: "700", marginTop: -2 },
     empty: { flex: 1, padding: 32, justifyContent: "center", gap: 10 },
     emptyTitle: { fontSize: 20, fontWeight: "700", color: c.text, textAlign: "center" },
+    demoBtn: {
+      alignSelf: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderWidth: 1,
+      borderRadius: 14,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      marginTop: 4,
+    },
+    demoBtnText: { color: c.accent, fontWeight: "700", fontSize: 14 },
     emptyBody: { fontSize: 15, color: c.dim, textAlign: "center", lineHeight: 22 },
     emptyBold: { fontWeight: "700", color: c.text },
     noResults: { color: c.dim, textAlign: "center", marginTop: 24, fontSize: 14 },

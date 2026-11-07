@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 
 import { detectPlatform, normalizeUrl, type VaultItem } from "./store";
 
@@ -30,7 +31,7 @@ export type ExtractOutcome =
   /** Timed out: counts against the per-item attempt budget. */
   | { status: "timeout" };
 
-const CACHE_KEY = "linkvault.extractcache.v1";
+const CACHE_KEY = `linkvault.extractcache.v1-${Constants.expoConfig?.version ?? "dev"}`;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Successful extractions are re-fetched after a week (plan: server keeps 30d). */
 const FRESH_MS = 7 * DAY_MS;
@@ -43,6 +44,17 @@ const MAX_HTML = 400_000;
 
 const BROWSER_UA =
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+
+/**
+ * Link-preview bot UA. Social platforms (Instagram, Facebook, Threads) serve
+ * their rich Open-Graph data — including og:image — to this agent, because it
+ * is how WhatsApp/Facebook render link previews. This is the official
+ * no-login preview pathway, not evasion: no cookies, no accounts, public
+ * content only. (agent-reach instead copies the user's own logged-in browser
+ * session — ruled out by the plan's no-login-scraping rule.)
+ */
+const PREVIEW_UA =
+  "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
 
 /**
  * Plain fetch + Promise.race timeout. Deliberately does NOT use
@@ -104,12 +116,20 @@ function cap(s: string | null | undefined, max: number): string | null {
 
 function decodeEntities(s: string): string {
   return s
-    .replace(/&amp;/g, "&")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => {
+      const cp = parseInt(h, 16);
+      return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : "";
+    })
+    .replace(/&#(\d+);/g, (_, d: string) => {
+      const cp = parseInt(d, 10);
+      return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : "";
+    })
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;|&#x27;/gi, "'")
-    .replace(/&nbsp;/gi, " ");
+    .replace(/&amp;/g, "&"); // last: avoid double-decoding
 }
 
 function matchAttr(tag: string, attr: string): string | null {
@@ -237,6 +257,48 @@ async function fetchGitHubApi(url: string): Promise<PlatformResult | null> {
   };
 }
 
+/**
+ * X/Twitter via FixTweet's public API (api.fxtwitter.com) — the same service
+ * embeds use to render tweet previews. No auth, no login; exposes tweet text,
+ * author and photo URLs / video poster frames that X serves publicly.
+ */
+async function fetchXViaFixTweet(url: string): Promise<PlatformResult | null> {
+  const id = url.match(/\/status(?:es)?\/(\d+)/)?.[1];
+  if (!id) return null;
+  const j = await fetchJson(`https://api.fxtwitter.com/i/status/${id}`);
+  const t = j?.tweet;
+  if (!t) return null;
+  const thumb =
+    t.media?.photos?.[0]?.url ??
+    t.media?.videos?.[0]?.thumbnail_url ??
+    t.media?.all?.[0]?.url ??
+    t.media?.all?.[0]?.thumbnail_url ??
+    null;
+  const text = typeof t.text === "string" ? t.text : null;
+  const author = t.author?.name ?? null;
+  return {
+    title: cap(text, MAX_TITLE) ?? (author ? `${author} on X` : null),
+    description: null,
+    thumbnailUrl: typeof thumb === "string" ? thumb : null,
+    siteName: "X",
+    meta: {
+      ...(t.author?.screen_name ? { author: `@${t.author.screen_name}` } : {}),
+      ...(typeof t.likes === "number" ? { likes: t.likes } : {}),
+      ...(typeof t.reposts === "number" ? { reposts: t.reposts } : {}),
+    },
+  };
+}
+
+/** OG extraction with an explicit UA — used for the platform-specific ladder. */
+async function ogVia(url: string, ua: string): Promise<ExtractResult | null> {
+  const html = await fetchText(url, {
+    "User-Agent": ua,
+    Accept: "text/html,application/xhtml+xml",
+  });
+  if (!html.ok) return null;
+  return extractFromHtml(html.text, url);
+}
+
 // ---- cache ---------------------------------------------------------------
 
 type CacheEntry = { at: number; result: ExtractResult };
@@ -335,14 +397,22 @@ export async function extractForUrl(
 async function runExtract(url: string): Promise<ExtractOutcome> {
   let result: ExtractResult | null = null;
   const platform = detectPlatform(url);
+  const social = platform === "instagram" || platform === "facebook" || platform === "threads";
 
   try {
     let platformResult: PlatformResult | null = null;
     if (platform === "youtube") platformResult = await fetchYouTubeOEmbed(url);
+    else if (platform === "x") platformResult = await fetchXViaFixTweet(url);
     else if (platform === "reddit") platformResult = await fetchRedditJson(url);
     else if (platform === "tiktok") platformResult = await fetchTikTokOEmbed(url);
     else if (platform === "github") platformResult = await fetchGitHubApi(url);
     if (platformResult) result = { ...platformResult, level: "full" };
+
+    if (!result && social) {
+      // social platforms serve rich OG (incl. og:image) to link-preview agents
+      const viaPreview = await ogVia(url, PREVIEW_UA);
+      if (viaPreview && viaPreview.level !== "url_only") result = viaPreview;
+    }
 
     if (!result) {
       const html = await fetchText(url, {
@@ -355,6 +425,12 @@ async function runExtract(url: string): Promise<ExtractOutcome> {
       } else if (html.timeout) {
         return { status: "timeout" };
       }
+    }
+
+    if (result && result.level === "url_only" && platform !== "x") {
+      // last resort: some sites only talk to preview bots
+      const viaPreview = await ogVia(url, PREVIEW_UA);
+      if (viaPreview && viaPreview.level !== "url_only") result = viaPreview;
     }
   } catch {
     // network-level failure (offline etc.) — treat as transient
@@ -383,6 +459,13 @@ function upgradeHttps(url: string | null): string | null {
   if (!url) return null;
   return url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
 }
+
+/** Known-good URLs that always return rich data — for the in-app self-test. */
+export const DEMO_URLS = [
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "https://github.com/facebook/react",
+  "https://blog.google/technology/ai/google-gemini-ai/",
+];
 
 /** Links that should be (re-)extracted right now. */
 export function selectEnrichTargets(items: VaultItem[]): VaultItem[] {
