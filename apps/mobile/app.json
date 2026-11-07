@@ -2,7 +2,7 @@
   "expo": {
     "name": "Link Vault",
     "slug": "linkvault",
-    "version": "0.4.1",
+    "version": "0.5.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "linkvault",
@@ -34,7 +34,8 @@
           "imageWidth": 96
         }
       ],
-      "./plugins/with-android-share-target"
+      "./plugins/with-android-share-target",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

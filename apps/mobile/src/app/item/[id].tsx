@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { extractForUrl } from "@/lib/extract";
+import { noteItemDeleted } from "@/lib/sync";
 import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -110,6 +111,7 @@ export default function ItemDetailScreen() {
   const confirmDelete = useCallback(() => {
     if (!item) return;
     remove(item.id);
+    void noteItemDeleted(item);
     router.back();
   }, [item, remove]);
 

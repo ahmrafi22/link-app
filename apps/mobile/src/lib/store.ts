@@ -29,6 +29,10 @@ export type VaultItem = {
   enrichedAt: string | null;
   enrichAttempts: number;
   favorite: boolean;
+  /** Server row id once the item has been uploaded (Phase ② sync). */
+  serverId: string | null;
+  /** Last successful upload time; null = still in the outbox. */
+  syncedAt: string | null;
 };
 
 const PLATFORM_MAP: Array<[string[], string]> = [
@@ -205,6 +209,8 @@ export async function loadItems(): Promise<VaultItem[]> {
       enrichedAt: null,
       enrichAttempts: 0,
       favorite: false,
+      serverId: null,
+      syncedAt: null,
       ...item,
     })) as VaultItem[];
   } catch {
@@ -212,7 +218,8 @@ export async function loadItems(): Promise<VaultItem[]> {
   }
 }
 
-async function persistItems(items: VaultItem[]): Promise<void> {
+/** Persist a full list — also used by the sync engine outside useVault. */
+export async function saveItems(items: VaultItem[]): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch {
@@ -265,6 +272,8 @@ export function saveShareInput(
     enrichedAt: null,
     enrichAttempts: 0,
     favorite: false,
+    serverId: null,
+    syncedAt: null,
     createdAt: now,
     lastSeenAt: now,
     seenCount: 1,
@@ -325,7 +334,7 @@ export function useVault() {
   const commit = useCallback((next: VaultItem[]) => {
     itemsRef.current = next;
     setItems(next);
-    void persistItems(next);
+    void saveItems(next);
   }, []);
 
   const add = useCallback(
@@ -370,5 +379,20 @@ export function useVault() {
     [commit]
   );
 
-  return { items, loaded, add, remove, updateMany, toggleFavorite, itemsRef };
+  /** Replace the whole list (sync engine results) and persist. */
+  const applyAll = useCallback(
+    (next: VaultItem[]) => {
+      commit(next);
+    },
+    [commit]
+  );
+
+  /** Re-read from storage (e.g. after Settings ran a sync). */
+  const reload = useCallback(async () => {
+    const stored = await loadItems();
+    itemsRef.current = stored;
+    setItems(stored);
+  }, []);
+
+  return { items, loaded, add, remove, updateMany, toggleFavorite, applyAll, reload, itemsRef };
 }
