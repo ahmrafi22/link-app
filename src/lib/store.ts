@@ -17,6 +17,18 @@ export type VaultItem = {
   createdAt: string;
   lastSeenAt: string;
   seenCount: number;
+  /** On-device extraction results (plan: hybrid device-assisted model). */
+  description: string | null;
+  /** og:image / platform thumbnail — by URL only, no object storage. */
+  thumbnailUrl: string | null;
+  siteName: string | null;
+  /** Platform-specific bits (subreddit, score, author, stars…). */
+  meta: Record<string, string | number> | null;
+  /** full = platform fetch · metadata = OG tags · url_only = nothing worked */
+  enrichmentLevel: "full" | "metadata" | "url_only" | null;
+  enrichedAt: string | null;
+  enrichAttempts: number;
+  favorite: boolean;
 };
 
 const PLATFORM_MAP: Array<[string[], string]> = [
@@ -182,7 +194,19 @@ export async function loadItems(): Promise<VaultItem[]> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // backfill fields added after v1 of the storage format
+    return parsed.map((item: Partial<VaultItem>) => ({
+      description: null,
+      thumbnailUrl: null,
+      siteName: null,
+      meta: null,
+      enrichmentLevel: null,
+      enrichedAt: null,
+      enrichAttempts: 0,
+      favorite: false,
+      ...item,
+    })) as VaultItem[];
   } catch {
     return [];
   }
@@ -233,6 +257,14 @@ export function saveShareInput(
   const item: VaultItem = {
     id: makeId(),
     ...parsed,
+    description: null,
+    thumbnailUrl: null,
+    siteName: null,
+    meta: null,
+    enrichmentLevel: null,
+    enrichedAt: null,
+    enrichAttempts: 0,
+    favorite: false,
     createdAt: now,
     lastSeenAt: now,
     seenCount: 1,
@@ -259,6 +291,16 @@ export function itemDisplayTitle(item: VaultItem): string {
     }
   }
   return "Untitled note";
+}
+
+/** Just the host of an item's URL, or null for notes. */
+export function domainOf(item: VaultItem): string | null {
+  if (!item.url) return null;
+  try {
+    return new URL(item.url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
 }
 
 /** Hook wiring the vault list to AsyncStorage. */
@@ -302,5 +344,31 @@ export function useVault() {
     [commit]
   );
 
-  return { items, loaded, add, remove };
+  /** Batch-patch items (enrichment results, favorites) in one persist. */
+  const updateMany = useCallback(
+    (patches: Array<{ id: string; patch: Partial<VaultItem> }>) => {
+      if (patches.length === 0) return;
+      const byId = new Map(patches.map((p) => [p.id, p.patch]));
+      commit(
+        itemsRef.current.map((item) => {
+          const patch = byId.get(item.id);
+          return patch ? { ...item, ...patch } : item;
+        })
+      );
+    },
+    [commit]
+  );
+
+  const toggleFavorite = useCallback(
+    (id: string) => {
+      commit(
+        itemsRef.current.map((item) =>
+          item.id === id ? { ...item, favorite: !item.favorite } : item
+        )
+      );
+    },
+    [commit]
+  );
+
+  return { items, loaded, add, remove, updateMany, toggleFavorite, itemsRef };
 }

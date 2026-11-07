@@ -1,10 +1,11 @@
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -18,14 +19,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
-import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
+import { enrichLinks, selectEnrichTargets } from "@/lib/extract";
+import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
 export default function InboxScreen() {
   const c = useTheme();
   const styles = useMemo(() => createStyles(c), [c]);
 
-  const { items, loaded, add, remove } = useVault();
+  const { items, loaded, add, remove, updateMany, itemsRef } = useVault();
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -47,30 +49,46 @@ export default function InboxScreen() {
   // land in a file while we're backgrounded; import them whenever the app
   // comes to the foreground. Gated on `loaded` so we never merge into an
   // empty list before AsyncStorage has restored the vault.
+  const enrichingRef = useRef(false);
+  const runEnrichment = useCallback(async () => {
+    if (enrichingRef.current) return;
+    const targets = selectEnrichTargets(itemsRef.current);
+    if (targets.length === 0) return;
+    enrichingRef.current = true;
+    try {
+      const updates = await enrichLinks(targets);
+      updateMany(updates);
+    } finally {
+      enrichingRef.current = false;
+    }
+  }, [itemsRef, updateMany]);
+
   useEffect(() => {
     if (!loaded) return;
     const drain = async () => {
       const entries = await drainInbox();
-      if (entries.length === 0) return;
-      let saved = 0;
-      let duplicates = 0;
-      for (const entry of entries) {
-        const result = add(inboxEntryToShareInput(entry));
-        if (!result) continue;
-        if (result.duplicate) duplicates += 1;
-        else saved += 1;
+      if (entries.length > 0) {
+        let saved = 0;
+        let duplicates = 0;
+        for (const entry of entries) {
+          const result = add(inboxEntryToShareInput(entry));
+          if (!result) continue;
+          if (result.duplicate) duplicates += 1;
+          else saved += 1;
+        }
+        const parts: string[] = [];
+        if (saved > 0) parts.push(`Saved ${saved} shared item${saved === 1 ? "" : "s"}`);
+        if (duplicates > 0) parts.push(`${duplicates} already saved`);
+        if (parts.length > 0) flash(parts.join(" · "));
       }
-      const parts: string[] = [];
-      if (saved > 0) parts.push(`Saved ${saved} shared item${saved === 1 ? "" : "s"}`);
-      if (duplicates > 0) parts.push(`${duplicates} already saved`);
-      if (parts.length > 0) flash(parts.join(" · "));
+      void runEnrichment();
     };
     void drain();
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") void drain();
     });
     return () => sub.remove();
-  }, [loaded, add, flash]);
+  }, [loaded, add, flash, runEnrichment]);
 
   // filter chips: everything actually present in the vault, first-seen order
   const filters = useMemo(() => {
@@ -102,7 +120,7 @@ export default function InboxScreen() {
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((i) =>
-        [i.title, i.url, i.rawText, i.platform]
+        [i.title, i.url, i.rawText, i.description, i.siteName, i.platform]
           .filter(Boolean)
           .some((v) => (v as string).toLowerCase().includes(q))
       );
@@ -308,7 +326,7 @@ function ItemCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const tile = platformTile(item.platform, item.kind);
+  const domain = domainOf(item);
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
@@ -316,23 +334,18 @@ function ItemCard({
       onLongPress={onLongPress}
       accessibilityRole={item.url ? "link" : "button"}
     >
-      <View style={[styles.tile, { backgroundColor: tile.bg }]}>
-        <Text style={[styles.tileGlyph, tile.glyph.length > 1 && styles.tileGlyphSmall]}>
-          {tile.glyph}
-        </Text>
-        {item.seenCount > 1 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>×{item.seenCount}</Text>
-          </View>
-        )}
-      </View>
+      <CardTile item={item} styles={styles} />
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={2}>
           {itemDisplayTitle(item)}
         </Text>
-        {item.url ? (
+        {item.description ? (
+          <Text style={styles.cardDetail} numberOfLines={2}>
+            {item.description}
+          </Text>
+        ) : item.url ? (
           <Text style={styles.cardDetail} numberOfLines={1}>
-            {item.url}
+            {domain ?? item.url}
           </Text>
         ) : item.rawText ? (
           <Text style={styles.cardDetail} numberOfLines={2}>
@@ -342,6 +355,40 @@ function ItemCard({
         <Text style={styles.cardWhen}>{formatWhen(item.lastSeenAt || item.createdAt)}</Text>
       </View>
     </Pressable>
+  );
+}
+
+/** Tile with the captured thumbnail when we have one, colored glyph otherwise. */
+function CardTile({
+  item,
+  styles,
+}: {
+  item: VaultItem;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [broken, setBroken] = useState(false);
+  const tile = platformTile(item.platform, item.kind);
+  const showImage = item.thumbnailUrl && !broken;
+  return (
+    <View style={[styles.tile, !showImage && { backgroundColor: tile.bg }]}>
+      {showImage ? (
+        <Image
+          source={{ uri: item.thumbnailUrl! }}
+          style={styles.tileImage}
+          resizeMode="cover"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <Text style={[styles.tileGlyph, tile.glyph.length > 1 && styles.tileGlyphSmall]}>
+          {tile.glyph}
+        </Text>
+      )}
+      {item.seenCount > 1 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>×{item.seenCount}</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -404,7 +451,9 @@ function createStyles(c: ThemeColors) {
       height: 92,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
+    tileImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
     tileGlyph: { fontSize: 32, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },
     tileGlyphSmall: { fontSize: 24 },
     badge: {
