@@ -34,7 +34,8 @@
           "imageWidth": 96
         }
       ],
-      "./plugins/with-android-share-target"
+      "./plugins/with-android-share-target",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
