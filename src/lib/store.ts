@@ -196,7 +196,7 @@ export async function loadItems(): Promise<VaultItem[]> {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     // backfill fields added after v1 of the storage format
-    return parsed.map((item: Partial<VaultItem>): VaultItem => ({
+    return parsed.map((item: Partial<VaultItem>) => ({
       description: null,
       thumbnailUrl: null,
       siteName: null,

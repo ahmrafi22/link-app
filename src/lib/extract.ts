@@ -276,10 +276,12 @@ export async function extractForUrl(
   const platform = detectPlatform(url);
 
   try {
-    if (platform === "youtube") result = await fetchYouTubeOEmbed(url);
-    else if (platform === "reddit") result = await fetchRedditJson(url);
-    else if (platform === "tiktok") result = await fetchTikTokOEmbed(url);
-    else if (platform === "github") result = await fetchGitHubApi(url);
+    let platformResult: PlatformResult | null = null;
+    if (platform === "youtube") platformResult = await fetchYouTubeOEmbed(url);
+    else if (platform === "reddit") platformResult = await fetchRedditJson(url);
+    else if (platform === "tiktok") platformResult = await fetchTikTokOEmbed(url);
+    else if (platform === "github") platformResult = await fetchGitHubApi(url);
+    if (platformResult) result = { ...platformResult, level: "full" };
 
     if (!result) {
       const html = await fetchText(url, {

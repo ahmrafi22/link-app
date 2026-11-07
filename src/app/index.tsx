@@ -5,6 +5,7 @@ import {
   Alert,
   AppState,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -119,7 +120,7 @@ export default function InboxScreen() {
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((i) =>
-        [i.title, i.url, i.rawText, i.platform]
+        [i.title, i.url, i.rawText, i.description, i.siteName, i.platform]
           .filter(Boolean)
           .some((v) => (v as string).toLowerCase().includes(q))
       );
@@ -325,7 +326,7 @@ function ItemCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const tile = platformTile(item.platform, item.kind);
+  const domain = domainOf(item);
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
@@ -333,23 +334,18 @@ function ItemCard({
       onLongPress={onLongPress}
       accessibilityRole={item.url ? "link" : "button"}
     >
-      <View style={[styles.tile, { backgroundColor: tile.bg }]}>
-        <Text style={[styles.tileGlyph, tile.glyph.length > 1 && styles.tileGlyphSmall]}>
-          {tile.glyph}
-        </Text>
-        {item.seenCount > 1 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>×{item.seenCount}</Text>
-          </View>
-        )}
-      </View>
+      <CardTile item={item} styles={styles} />
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={2}>
           {itemDisplayTitle(item)}
         </Text>
-        {item.url ? (
+        {item.description ? (
+          <Text style={styles.cardDetail} numberOfLines={2}>
+            {item.description}
+          </Text>
+        ) : item.url ? (
           <Text style={styles.cardDetail} numberOfLines={1}>
-            {item.url}
+            {domain ?? item.url}
           </Text>
         ) : item.rawText ? (
           <Text style={styles.cardDetail} numberOfLines={2}>
@@ -359,6 +355,40 @@ function ItemCard({
         <Text style={styles.cardWhen}>{formatWhen(item.lastSeenAt || item.createdAt)}</Text>
       </View>
     </Pressable>
+  );
+}
+
+/** Tile with the captured thumbnail when we have one, colored glyph otherwise. */
+function CardTile({
+  item,
+  styles,
+}: {
+  item: VaultItem;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [broken, setBroken] = useState(false);
+  const tile = platformTile(item.platform, item.kind);
+  const showImage = item.thumbnailUrl && !broken;
+  return (
+    <View style={[styles.tile, !showImage && { backgroundColor: tile.bg }]}>
+      {showImage ? (
+        <Image
+          source={{ uri: item.thumbnailUrl! }}
+          style={styles.tileImage}
+          resizeMode="cover"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <Text style={[styles.tileGlyph, tile.glyph.length > 1 && styles.tileGlyphSmall]}>
+          {tile.glyph}
+        </Text>
+      )}
+      {item.seenCount > 1 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>×{item.seenCount}</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -421,7 +451,9 @@ function createStyles(c: ThemeColors) {
       height: 92,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
+    tileImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
     tileGlyph: { fontSize: 32, fontWeight: "800", color: "#FFFFFF", opacity: 0.92 },
     tileGlyphSmall: { fontSize: 24 },
     badge: {
