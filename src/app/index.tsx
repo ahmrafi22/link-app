@@ -60,10 +60,15 @@ export default function InboxScreen() {
     setFetchingCount(targets.length);
     try {
       // apply each result the moment it lands — cards fill in progressively
+      let enriched = 0;
       await enrichLinks(targets, (update) => {
+        if (update.patch.enrichmentLevel) enriched += 1;
         updateMany([update]);
         setFetchingCount((n) => Math.max(0, n - 1));
       });
+      if (enriched === 0) {
+        flash("Page fetch failed on this network — hold “Vault” for Diagnostics");
+      }
     } finally {
       enrichingRef.current = false;
       setFetchingCount(0);

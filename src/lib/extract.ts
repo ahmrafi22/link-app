@@ -44,28 +44,37 @@ const MAX_HTML = 400_000;
 const BROWSER_UA =
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
 
+/**
+ * Plain fetch + Promise.race timeout. Deliberately does NOT use
+ * AbortController/signal: some React Native release runtimes reject signal'd
+ * fetches outright, and we'd rather leak a slow request than lose all of
+ * them. Accepts any 2xx body regardless of content-type — the JSON/OG
+ * parsers tolerate garbage, so a missing header can't zero out every fetch.
+ */
+const TIMEOUT: unique symbol = Symbol("timeout");
+
 async function fetchText(
   url: string,
   headers: Record<string, string>,
   timeoutMs = 7000
-): Promise<{ ok: true; text: string } | { ok: false; timeout: boolean }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+): Promise<{ ok: true; text: string; status: number } | { ok: false; timeout: boolean; status: number }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const res = await fetch(url, { headers, signal: controller.signal });
-    if (!res.ok) return { ok: false, timeout: false };
-    const type = res.headers.get("content-type") ?? "";
-    if (!/text\/html|application\/json|text\/plain/.test(type)) {
-      return { ok: false, timeout: false };
-    }
+    const res: Response | typeof TIMEOUT = await Promise.race([
+      fetch(url, { headers }),
+      new Promise<typeof TIMEOUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMEOUT), timeoutMs);
+      }),
+    ]);
+    if (res === TIMEOUT) return { ok: false, timeout: true, status: 0 };
+    if (!res.ok) return { ok: false, timeout: false, status: res.status };
     const text = await res.text();
-    return { ok: true, text: text.slice(0, MAX_HTML) };
+    return { ok: true, text: text.slice(0, MAX_HTML), status: res.status };
   } catch {
-    // abort() surfaces as AbortError; signal.aborted distinguishes it from
-    // genuine network failures (offline → false)
-    return { ok: false, timeout: controller.signal.aborted };
+    // offline, DNS, TLS — genuine network failure
+    return { ok: false, timeout: false, status: 0 };
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -265,9 +274,34 @@ export async function clearExtractCache(): Promise<void> {
 
 // ---- public API -----------------------------------------------------------
 
+/** Recent fetch attempts, for the on-device diagnostics screen. */
+export type FetchLogEntry = { at: number; url: string; status: string; ms: number };
+const LOG_KEY = "linkvault.extractlog.v1";
+
+async function appendLog(entry: FetchLogEntry): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(LOG_KEY);
+    const list: FetchLogEntry[] = raw ? JSON.parse(raw) : [];
+    list.unshift(entry);
+    await AsyncStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 30)));
+  } catch {
+    // best-effort
+  }
+}
+
+export async function readFetchLog(): Promise<FetchLogEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(LOG_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Extract everything possible for one link. Returns `done` with a patch-able
  * result, `timeout` (counts an attempt), or `failed` (transient network).
+ * Every network attempt is recorded in the on-device fetch log.
  */
 export async function extractForUrl(
   url: string,
@@ -281,6 +315,24 @@ export async function extractForUrl(
     if (hit && isFresh(hit)) return { status: "done", result: hit.result };
   }
 
+  const t0 = Date.now();
+  const outcome = await runExtract(url);
+  await appendLog({
+    at: Date.now(),
+    url: url.slice(0, 100),
+    status: outcome.status === "done" ? `done:${outcome.result.level}` : outcome.status,
+    ms: Date.now() - t0,
+  });
+
+  if (outcome.status === "done") {
+    const cache = await readCache();
+    cache[urlKey] = { at: Date.now(), result: outcome.result };
+    await writeCache(cache);
+  }
+  return outcome;
+}
+
+async function runExtract(url: string): Promise<ExtractOutcome> {
   let result: ExtractResult | null = null;
   const platform = detectPlatform(url);
 
@@ -312,10 +364,6 @@ export async function extractForUrl(
   if (!result) return { status: "done", result: emptyResult() };
 
   result = { ...result, thumbnailUrl: upgradeHttps(result.thumbnailUrl) };
-
-  const cache = await readCache();
-  cache[urlKey] = { at: Date.now(), result };
-  await writeCache(cache);
   return { status: "done", result };
 }
 
