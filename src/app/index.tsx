@@ -1,4 +1,5 @@
 import * as Clipboard from "expo-clipboard";
+import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -220,7 +221,7 @@ export default function InboxScreen() {
             {loaded
               ? `${items.length} saved${linkCount !== items.length ? ` · ${linkCount} links` : ""}${
                   fetchingCount > 0 ? ` · fetching ${fetchingCount}…` : ""
-                }`
+                } · v${Constants.expoConfig?.version ?? "?"}`
               : "Loading…"}
           </Text>
         </View>

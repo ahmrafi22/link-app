@@ -33,6 +33,17 @@ function levelLabel(item: VaultItem): string {
   }
 }
 
+/** One-line reason under the chips, so "no thumbnail" always has a why. */
+function levelHint(item: VaultItem): string | null {
+  if (item.kind !== "link") return null;
+  if (!item.enrichmentLevel) return "Not fetched yet — runs automatically when the app opens.";
+  if (item.enrichmentLevel === "url_only")
+    return "This site shared nothing with us — it's login-walled or blocking non-browser visitors.";
+  if (!item.thumbnailUrl)
+    return "This page shared text only — no image without logging in.";
+  return null;
+}
+
 type DetailStyles = ReturnType<typeof createStyles>;
 
 function levelChipStyle(
@@ -229,15 +240,17 @@ export default function ItemDetailScreen() {
             <Text style={styles.chipText}>{item.platform ?? (item.kind === "text" ? "note" : "link")}</Text>
           </View>
           {item.kind === "link" && (
-          <View style={[styles.chip, levelChipStyle(item.enrichmentLevel, styles)]}>
-            <Text
-              style={[styles.chipText, levelChipTextStyle(item.enrichmentLevel, styles)]}
-            >
-              {levelLabel(item)}
-            </Text>
-          </View>
+            <View style={[styles.chip, levelChipStyle(item.enrichmentLevel, styles)]}>
+              <Text
+                style={[styles.chipText, levelChipTextStyle(item.enrichmentLevel, styles)]}
+              >
+                {levelLabel(item)}
+              </Text>
+            </View>
           )}
         </View>
+
+        {levelHint(item) ? <Text style={styles.levelHint}>{levelHint(item)}</Text> : null}
 
         {item.description ? (
           <Text style={styles.description}>{item.description}</Text>
@@ -431,6 +444,7 @@ function createStyles(c: ThemeColors) {
     levelMetadata: { backgroundColor: "#1F2A3D" },
     levelMetadataText: { color: "#7EB3E8" },
     description: { fontSize: 15, color: c.dim, lineHeight: 22 },
+    levelHint: { fontSize: 12.5, color: c.dim, lineHeight: 17, marginTop: -6 },
     noteCard: { backgroundColor: c.surface, borderRadius: 16, padding: 14 },
     noteText: { fontSize: 15, color: c.text, lineHeight: 22 },
     buttonRow: { flexDirection: "row", gap: 10, marginTop: 2 },
