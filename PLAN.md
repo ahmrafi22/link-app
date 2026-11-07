@@ -357,7 +357,22 @@ Baseline when this was written: mobile at v0.4.1 on `main` (build-15 green), sha
 2. ✅ **`apps/web` skeleton** — DONE (branch `feat/web-api-skeleton`, merged): Next.js 16 App Router; `GET /api/health` (config report + Supabase ping); `POST /api/captures` (bearer auth timing-safe, tracking-param URL normalize, `url_hash` dedupe → bumps `seen_count`, accepts `clientExtracted` → `full_device`/`metadata`, 503 until Supabase env set); `GET /api/captures?state=&limit=`; `.env.example` placeholders only. Locally smoke-tested: 401/400/503 ladder verified.
 3. ✅ **Supabase migrations** — DONE (branch `feat/supabase-migrations`, merged): `supabase/migrations/0001_core_schema.sql` (4 tables, pgvector 768d + HNSW, FTS generated column, RLS enabled, no policies) and `0002_search_rpc.sql` (`match_items` RRF hybrid + `related_items`). User pastes both into the Supabase SQL editor in order.
 4. ⬜ **User pre-work (the user's turn now)**: create Supabase project (→ `SUPABASE_URL` + service-role key), Vercel Hobby account, Gemini key (only needed at Phase ④). Vercel: import repo, **Root Directory = `apps/web`**, env vars: `APP_SECRET` (value handed to user at kickoff — keep it out of the repo), `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (service role). All secrets live only in Vercel env vars — never in the repo, never in the APK.
-5. ⬜ **Smoke test**: `curl` health + a capture POST against the deployed URL; then Phase ② (mobile sync/outbox/Settings screen).
+5. ⬜ **Smoke test**: `curl` health + a capture POST against the deployed URL; then Phase ② (mobile sync/outbox/Settings screen). ✅ (done 2026-11-07 — see header note above)
+
+---
+
+## Phase ② — Mobile sync / outbox / Settings (2026-11-07, ✅ shipped as v0.5.0, build-17)
+
+Branch `feat/mobile-sync-settings`, 5 commits, merged to `main`. Mobile typecheck clean; web build clean.
+
+- **`src/lib/api.ts`** — API client. Config = deployment URL + `APP_SECRET`, pasted once in Settings, stored via `expo-secure-store` (keychain, never AsyncStorage/repo). Endpoints: `testConnection` (health), `postCapture`, `getCaptures`, `deleteCapture`. Invariant carried over from extract.ts: **no `signal` on fetch** — `Promise.race` timeout, fetch rejections swallowed so the race loser can't raise unhandled rejections.
+- **`src/lib/sync.ts`** — local-first sync. Uploads = items with no `serverId` POST to the API (server dedupes on `url_hash`, so retries are safe). Pulls = GET 200 newest, merged: server wins for content it has, local keeps id/favorite/local-only extraction when equal-or-better (`LEVEL_RANK` compare incl. `full_device/full_server → full`). Deletes: `noteItemDeleted` records a pending delete synchronously, replayed as `DELETE /api/captures/:id`, then tombstoned (`linkvault.tombstones.v1`) so pulls never resurrect. Favorites stay device-local by design.
+- **`src/app/settings.tsx`** — API base URL + APP_SECRET inputs, "Save + test" (reports db state + warns if server has no APP_SECRET), "Sync now" (runs a round via AsyncStorage directly), "Disconnect". Version marker in header.
+- **Home** — ⚙ gear opens Settings; after drain on open/foreground the app runs **sync → then enrichment**; subtitle shows `· N to sync` only when a server is configured; `useFocusEffect` reloads from storage + config so Settings actions are reflected on back-navigation.
+- **Server** — added `DELETE /api/captures/:id` (bearer auth, uuid-validated). Auto-deploy to Vercel confirmed live (401 guard).
+- Store: `VaultItem` gains `serverId`/`syncedAt` (backfilled); `useVault` gains `applyAll`/`reload`; `saveItems` exported for Settings.
+
+**Phase ③ next**: server enrichment waterfall in `after()` + `fetch_cache` (Reddit needs OG-primary from datacenter IPs), cron sweep + Supabase heartbeat, `CRON_SECRET` env var.
 
 
 
