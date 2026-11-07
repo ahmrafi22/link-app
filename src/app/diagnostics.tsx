@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { clearExtractCache, extractForUrl } from "@/lib/extract";
+import { clearExtractCache, extractForUrl, readFetchLog, type FetchLogEntry } from "@/lib/extract";
 import { domainOf, useVault, type VaultItem } from "@/lib/store";
 import { useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -26,6 +26,15 @@ export default function DiagnosticsScreen() {
   const [probe, setProbe] = useState<RowState>({ text: "testing…", kind: "busy" });
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [running, setRunning] = useState(false);
+  const [log, setLog] = useState<FetchLogEntry[]>([]);
+
+  const refreshLog = useCallback(() => {
+    void readFetchLog().then(setLog);
+  }, []);
+
+  useEffect(() => {
+    refreshLog();
+  }, [refreshLog]);
 
   const links = useMemo(
     () => items.filter((i) => i.kind === "link" && i.url).slice(0, 30),
@@ -113,7 +122,8 @@ export default function DiagnosticsScreen() {
       }));
     }
     setRunning(false);
-  }, [links, patchFromOutcome, running]);
+    refreshLog();
+  }, [links, patchFromOutcome, running, refreshLog]);
 
   const clearCache = useCallback(async () => {
     await clearExtractCache();
@@ -183,6 +193,25 @@ export default function DiagnosticsScreen() {
           green = data captured · yellow = fetched but nothing usable (site blocked or
           login-walled) · red = network failure · "TIMEOUT" = no response in 7s
         </Text>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Recent fetch log (newest first)</Text>
+          {log.length === 0 && (
+            <Text style={styles.line}>
+              No fetches recorded yet — open the app or tap "Re-run all".
+            </Text>
+          )}
+          {log.slice(0, 15).map((e, i) => (
+            <View key={`${e.at}-${i}`} style={styles.row}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {new Date(e.at).toLocaleTimeString()} · {e.status} · {e.ms}ms
+              </Text>
+              <Text style={styles.line} numberOfLines={1}>
+                {e.url}
+              </Text>
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
