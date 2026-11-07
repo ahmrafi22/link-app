@@ -34,6 +34,7 @@ export default function InboxScreen() {
   const [filter, setFilter] = useState("all");
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
+  const [fetchingCount, setFetchingCount] = useState(0);
 
   const flash = useCallback((text: string) => {
     setNotice({ id: Date.now(), text });
@@ -56,11 +57,16 @@ export default function InboxScreen() {
     const targets = selectEnrichTargets(itemsRef.current);
     if (targets.length === 0) return;
     enrichingRef.current = true;
+    setFetchingCount(targets.length);
     try {
-      const updates = await enrichLinks(targets);
-      updateMany(updates);
+      // apply each result the moment it lands — cards fill in progressively
+      await enrichLinks(targets, (update) => {
+        updateMany([update]);
+        setFetchingCount((n) => Math.max(0, n - 1));
+      });
     } finally {
       enrichingRef.current = false;
+      setFetchingCount(0);
     }
   }, [itemsRef, updateMany]);
 
@@ -191,7 +197,8 @@ export default function InboxScreen() {
     }
     setDraft("");
     flash(result.duplicate ? "Already in your vault" : "Saved to your vault");
-  }, [add, draft, flash]);
+    void runEnrichment();
+  }, [add, draft, flash, runEnrichment]);
 
   const linkCount = items.filter((i) => i.kind === "link").length;
 
@@ -205,7 +212,9 @@ export default function InboxScreen() {
           <Text style={styles.title}>Vault</Text>
           <Text style={styles.subtitle}>
             {loaded
-              ? `${items.length} saved${linkCount !== items.length ? ` · ${linkCount} links` : ""}`
+              ? `${items.length} saved${linkCount !== items.length ? ` · ${linkCount} links` : ""}${
+                  fetchingCount > 0 ? ` · fetching ${fetchingCount}…` : ""
+                }`
               : "Loading…"}
           </Text>
         </View>
@@ -393,6 +402,11 @@ function CardTile({
           {tile.glyph}
         </Text>
       )}
+      {item.kind === "link" && !item.enrichmentLevel && (
+        <View style={styles.pendingBadge}>
+          <Text style={styles.pendingBadgeText}>…</Text>
+        </View>
+      )}
       {item.favorite && (
         <View style={styles.favBadge}>
           <Text style={styles.favBadgeText}>★</Text>
@@ -493,6 +507,16 @@ function createStyles(c: ThemeColors) {
       justifyContent: "center",
     },
     favBadgeText: { color: "#F5B83D", fontSize: 12, lineHeight: 14 },
+    pendingBadge: {
+      position: "absolute",
+      bottom: 8,
+      left: 8,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      borderRadius: 999,
+      paddingHorizontal: 7,
+      paddingVertical: 1,
+    },
+    pendingBadgeText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
     cardBody: { padding: 12, gap: 5 },
     cardTitle: { fontSize: 14.5, fontWeight: "600", color: c.text, lineHeight: 19 },
     cardDetail: { fontSize: 12, color: c.dim },

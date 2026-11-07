@@ -302,6 +302,8 @@ export async function extractForUrl(
 
   if (!result) return { status: "done", result: emptyResult() };
 
+  result = { ...result, thumbnailUrl: upgradeHttps(result.thumbnailUrl) };
+
   const cache = await readCache();
   cache[urlKey] = { at: Date.now(), result };
   await writeCache(cache);
@@ -319,6 +321,12 @@ function emptyResult(): ExtractResult {
   };
 }
 
+/** Android release builds block cleartext http — upgrade image URLs to https. */
+function upgradeHttps(url: string | null): string | null {
+  if (!url) return null;
+  return url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
+}
+
 /** Links that should be (re-)extracted right now. */
 export function selectEnrichTargets(items: VaultItem[]): VaultItem[] {
   const now = Date.now();
@@ -334,11 +342,11 @@ export function selectEnrichTargets(items: VaultItem[]): VaultItem[] {
   });
 }
 
-/** Run extraction over a list of targets, 3 at a time. Returns store patches. */
+/** Run extraction over a list of targets, 3 at a time. Calls back per result so the UI updates progressively. */
 export async function enrichLinks(
-  targets: VaultItem[]
-): Promise<Array<{ id: string; patch: Partial<VaultItem> }>> {
-  const updates: Array<{ id: string; patch: Partial<VaultItem> }> = [];
+  targets: VaultItem[],
+  onResult: (update: { id: string; patch: Partial<VaultItem> }) => void
+): Promise<void> {
   const queue = [...targets];
 
   async function worker() {
@@ -346,7 +354,7 @@ export async function enrichLinks(
       const item = queue.shift()!;
       const outcome = await extractForUrl(item.url!);
       if (outcome.status === "done") {
-        updates.push({
+        onResult({
           id: item.id,
           patch: {
             title: item.title ?? outcome.result.title,
@@ -360,7 +368,7 @@ export async function enrichLinks(
           },
         });
       } else if (outcome.status === "timeout") {
-        updates.push({
+        onResult({
           id: item.id,
           patch: { enrichAttempts: (item.enrichAttempts ?? 0) + 1 },
         });
@@ -370,5 +378,4 @@ export async function enrichLinks(
   }
 
   await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
-  return updates;
 }
