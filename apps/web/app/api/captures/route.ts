@@ -1,4 +1,7 @@
+import { after } from "next/server";
+
 import { checkAuth, unauthorized } from "@/lib/auth";
+import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
 import { cap, detectPlatform, normalizeUrl, urlHash } from "@/lib/normalize";
 import { sb, sbErrorMessage } from "@/lib/supabase";
@@ -86,9 +89,7 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, saved: "existing", id: dup.id });
     }
   }
-
-  const title = cap(str(body.title) || str(clientExtracted?.title), 300);
-  const row: Record<string, unknown> = {
+  const title = cap(str(body.title) || str(clientExtracted?.title), 300);  const row: Record<string, unknown> = {
     url,
     url_hash: url ? urlHash(url) : null,
     kind: url ? "link" : "text",
@@ -122,7 +123,20 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-  return Response.json({ ok: true, saved: "created", item: inserted[0] }, { status: 201 });
+  const created = inserted[0];
+
+  // Phase ③: enrichment runs after the response is sent — the capture
+  // returns in ~100ms and the item fills in over the next few seconds.
+  // Idempotent + cache-backed; failures leave status=pending/failed for cron.
+  after(async () => {
+    try {
+      await enrichItem(String(created.id));
+    } catch {
+      // cron sweep retries anything that ends up stale
+    }
+  });
+
+  return Response.json({ ok: true, saved: "created", item: created }, { status: 201 });
 }
 
 /**
