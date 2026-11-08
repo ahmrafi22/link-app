@@ -385,7 +385,15 @@ Branch `feat/server-enrichment`, 5 commits, merged to `main`, Vercel auto-deploy
 - **Migration `0003_item_meta.sql`** — `items.meta jsonb` (user pastes into SQL editor; until then platform metadata (stars/likes/channel) is computed but not persisted).
 - Live-verified locally + on prod: YouTube (title/thumb/channel), GitHub API (note: facebook/react renamed → canonical `react/react`, followed correctly), X via fxtwitter ("just setting up my twttr"), blog.google (og + 15 k chars text), Instagram via preview-UA (worked from server), cron auth 401/401/200 + sweep + heartbeat.
 
-**Phase ④ next**: Gemini embeddings + one-call summary/categorization, duplicates, feedback events — needs `GEMINI_API_KEY` in Vercel.
+**Phase ④ next**: Gemini embeddings + one-call summary/categorization, duplicates, feedback events — needs `GEMINI_API_KEY` in Vercel. ✅ **BUILT (2026-11-08, branch `feat/ai-layer`)** — code live; **awaiting a valid key** (user's first paste was an OAuth token, 401) to verify the LLM/embedding path end-to-end.
+
+## Phase ④ — AI layer (2026-11-08, ✅ shipped as v0.5.3 / build-21; key pending)
+
+- **`lib/ai.ts`** — provider-agnostic: Gemini native (`gemini-2.5-flash` JSON mode via `responseMimeType`, `gemini-embedding-001` @ 768 `RETRIEVAL_DOCUMENT`) primary; any OpenAI-compatible endpoint (`OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL`/`OPENAI_EMBEDDING_MODEL`) as alternative; Gemini wins when both set. Embeddings: dims param → fallback plain → Matryoshka truncate to 768; shorter → null (column is vector(768), never mix models).
+- **`lib/aiEnrich.ts`** — embed → store vector → `related_items` top-8 (doubles as duplicate check: >0.96 cosine same platform → `duplicate_of`) → RAG context (categories+counts, neighbor titles, last-10 recategorize feedback) → one strict-JSON call → thresholds 0.7/0.8 (assign / auto-create `is_ai_created`) / else `none`. `category_source=manual` is never overwritten. Summary ≤500, topics kebab-cased ≤6.
+- **Wiring**: `after()` runs `enrichItem` → `aiEnrichItem`; retry endpoint forces both. Endpoints: `GET|POST /api/categories` (counts / create), `POST /api/captures/:id/recategorize` (sets `manual`, writes `feedback_events` — retrieved into future prompts).
+- **Verified on prod without a key**: graceful skip, categories/recategorize/feedback event all working. **Pending**: valid `GEMINI_API_KEY` (AIza…) in Vercel → then capture → summary/topics/category appear (~20 s) and the Categories folder view populates.
+- Phone v0.5.3 shows a 🏖 category chip on item detail. Manual recategorize UI on phone/web = Phase ⑤.
 
 ---
 
