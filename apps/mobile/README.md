@@ -72,3 +72,7 @@ scripts/make-icons.mjs# regenerates assets/images icon set (npm run icons)
 ```
 
 Data is a single JSON array under AsyncStorage key `linkvault.items.v1`. When the backend phases land (per PLAN.md), this store is the seam to replace with API sync + offline queue.
+
+## Retry
+
+Items the **server** failed to fetch show a "Retry server fetch" button on their detail screen (server marks them `failed`). Healthy items show no retry controls.
