@@ -114,6 +114,8 @@ export type ApiItem = {
   thumbnail_url: string | null;
   enrichment_level: string;
   status: string;
+  summary: string | null;
+  topics: string[] | null;
   seen_count: number;
   created_at: string;
   last_seen_at: string | null;
@@ -208,6 +210,89 @@ export async function retryCapture(
       return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
     }
     return { ok: true, item: body.item as ApiItem };
+  } catch {
+    return { ok: false, error: "network error" };
+  }
+}
+
+/** GET /api/captures/:id/related — vector neighbors for the detail screen. */
+export async function relatedCaptures(
+  config: ApiConfig,
+  serverId: string
+): Promise<{ ok: true; items: Array<{ id: string; title: string | null; platform: string | null; similarity: number }> } | Fail> {
+  try {
+    const { res, timedOut } = await apiFetch(
+      config,
+      `/api/captures/${serverId}/related`,
+      { method: "GET" },
+      10000
+    );
+    if (timedOut || !res) return { ok: false, error: timedOut ? "timed out" : "network error" };
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
+    return { ok: true, items: Array.isArray(body.items) ? body.items : [] };
+  } catch {
+    return { ok: false, error: "network error" };
+  }
+}
+
+export type CategoryInfo = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  is_ai_created: boolean;
+  count: number;
+};
+
+export async function listCategories(config: ApiConfig): Promise<{ ok: true; categories: CategoryInfo[] } | Fail> {
+  try {
+    const { res } = await apiFetch(config, "/api/categories", { method: "GET" }, 10000);
+    if (!res) return { ok: false, error: "network error" };
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
+    return { ok: true, categories: body.categories ?? [] };
+  } catch {
+    return { ok: false, error: "network error" };
+  }
+}
+
+export async function createCategory(
+  config: ApiConfig,
+  name: string
+): Promise<{ ok: true; category: CategoryInfo } | Fail> {
+  try {
+    const { res } = await apiFetch(
+      config,
+      "/api/categories",
+      { method: "POST", body: JSON.stringify({ name }) },
+      10000
+    );
+    if (!res) return { ok: false, error: "network error" };
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
+    return { ok: true, category: body.category };
+  } catch {
+    return { ok: false, error: "network error" };
+  }
+}
+
+export async function setItemCategory(
+  config: ApiConfig,
+  serverId: string,
+  categoryId: string | null
+): Promise<{ ok: true; category_name: string | null } | Fail> {
+  try {
+    const { res } = await apiFetch(
+      config,
+      `/api/captures/${serverId}/recategorize`,
+      { method: "POST", body: JSON.stringify({ category_id: categoryId }) },
+      10000
+    );
+    if (!res) return { ok: false, error: "network error" };
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
+    return { ok: true, category_name: body.category_name };
   } catch {
     return { ok: false, error: "network error" };
   }
