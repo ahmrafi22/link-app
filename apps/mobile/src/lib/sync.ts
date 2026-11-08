@@ -117,6 +117,7 @@ function itemFromApiItem(a: ApiItem): VaultItem {
     enrichedAt: null,
     enrichAttempts: 0,
     favorite: false,
+    serverStatus: a.status ?? null,
     categoryId: a.categories?.id ?? null,
     categoryName: a.categories?.name ?? null,
     createdAt: a.created_at,
@@ -126,8 +127,9 @@ function itemFromApiItem(a: ApiItem): VaultItem {
 }
 
 /** Merge a server row into a matched local item — server wins for content
- * it has, local keeps identity, favorite and better enrichment. */
-function mergeServerIntoLocal(local: VaultItem, a: ApiItem): VaultItem {
+ * it has, local keeps identity, favorite and better enrichment. Also used
+ * by the item-detail retry button to apply a fresh server row. */
+export function mergeServerIntoLocal(local: VaultItem, a: ApiItem): VaultItem {
   const serverRank = serverLevelRank(a.enrichment_level);
   const localRank = local.enrichmentLevel ? (LEVEL_RANK[local.enrichmentLevel] ?? 0) : 0;
   const lastSeenCandidates = [local.lastSeenAt, a.last_seen_at ?? a.created_at]
@@ -138,6 +140,7 @@ function mergeServerIntoLocal(local: VaultItem, a: ApiItem): VaultItem {
     ...local,
     serverId: a.id,
     syncedAt: new Date().toISOString(),
+    serverStatus: a.status ?? local.serverStatus,
     seenCount: Math.max(local.seenCount, a.seen_count),
     lastSeenAt: lastSeenCandidates[0] ?? local.lastSeenAt,
     title: a.title ?? local.title,

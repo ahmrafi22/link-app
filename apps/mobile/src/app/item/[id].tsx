@@ -16,8 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { getApiConfig, retryCapture } from "@/lib/api";
 import { extractForUrl } from "@/lib/extract";
-import { noteItemDeleted } from "@/lib/sync";
+import { mergeServerIntoLocal, noteItemDeleted } from "@/lib/sync";
 import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
@@ -37,6 +38,8 @@ function levelLabel(item: VaultItem): string {
 /** One-line reason under the chips, so "no thumbnail" always has a why. */
 function levelHint(item: VaultItem): string | null {
   if (item.kind !== "link") return null;
+  if (item.serverStatus === "failed")
+    return "The server couldn't read this page either — re-try it below.";
   if (!item.enrichmentLevel) return "Not fetched yet — runs automatically when the app opens.";
   if (item.enrichmentLevel === "url_only")
     return "This site shared nothing with us — it's login-walled or blocking non-browser visitors.";
@@ -75,6 +78,7 @@ export default function ItemDetailScreen() {
 
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [heroRatio, setHeroRatio] = useState<number | null>(null);
 
   const thumbnailUrl = item?.thumbnailUrl ?? null;
@@ -149,6 +153,32 @@ export default function ItemDetailScreen() {
     }
   }, [item, refreshing, updateMany]);
 
+  // forced re-enrichment on the SERVER — only surfaced on server-failed items
+  const retryServer = useCallback(async () => {
+    if (!item?.serverId || retrying) return;
+    setRetrying(true);
+    try {
+      const config = await getApiConfig();
+      if (!config) {
+        setNotice("Connect a server in Settings first");
+        return;
+      }
+      const r = await retryCapture(config, item.serverId);
+      if (!r.ok) {
+        setNotice(`Server retry failed: ${r.error}`);
+        return;
+      }
+      updateMany([{ id: item.id, patch: { ...mergeServerIntoLocal(item, r.item) } }]);
+      setNotice(
+        r.item.status === "ready"
+          ? "Server fetched the page"
+          : "Server still can't read this page — try again later"
+      );
+    } finally {
+      setRetrying(false);
+    }
+  }, [item, retrying, updateMany]);
+
   if (!loaded) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -167,6 +197,11 @@ export default function ItemDetailScreen() {
 
   const domain = domainOf(item);
   const tile = platformTile(item.platform, item.kind);
+  const serverFailed = item.serverStatus === "failed";
+  // local re-fetch is only offered where it can plausibly help — never on
+  // healthy items (the server retry card covers failed ones)
+  const localWeak =
+    item.kind === "link" && (!item.enrichmentLevel || item.enrichmentLevel === "url_only");
   const metaRows: Array<[string, string]> = [];
   if (item.kind === "link") {
     // diagnostics: shows whether data was fetched, and how many times it timed out
@@ -254,6 +289,27 @@ export default function ItemDetailScreen() {
 
         {levelHint(item) ? <Text style={styles.levelHint}>{levelHint(item)}</Text> : null}
 
+        {serverFailed && (
+          <View style={styles.retryCard}>
+            <Text style={styles.retryTitle}>Server fetch failed</Text>
+            <Text style={styles.retryHint}>
+              Your backend couldn't read this page yet — no title, description or
+              thumbnail came back. One tap re-tries it from the server.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => void retryServer()}
+              disabled={retrying}
+              accessibilityRole="button"
+              accessibilityLabel="Retry server fetch"
+            >
+              <Text style={styles.retryBtnText}>
+                {retrying ? "Retrying…" : "↻ Retry server fetch"}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
         {item.description ? (
           <Text style={styles.description}>{item.description}</Text>
         ) : null}
@@ -270,7 +326,7 @@ export default function ItemDetailScreen() {
               <Text style={styles.primaryBtnText}>Open link</Text>
             </Pressable>
           )}
-          {item.url && (
+          {item.url && !serverFailed && localWeak && (
             <Pressable
               style={styles.secondaryBtn}
               onPress={() => void refresh()}
@@ -447,6 +503,26 @@ function createStyles(c: ThemeColors) {
     levelMetadataText: { color: "#7EB3E8" },
     description: { fontSize: 15, color: c.dim, lineHeight: 22 },
     levelHint: { fontSize: 12.5, color: c.dim, lineHeight: 17, marginTop: -6 },
+    // shown only when the server pipeline marked the item failed
+    retryCard: {
+      backgroundColor: c.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 14,
+      gap: 8,
+    },
+    retryTitle: { fontSize: 14, fontWeight: "800", color: c.danger },
+    retryHint: { fontSize: 12.5, color: c.dim, lineHeight: 18 },
+    retryBtn: {
+      alignSelf: "flex-start",
+      backgroundColor: c.accent,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      marginTop: 2,
+    },
+    retryBtnText: { color: c.onAccent, fontWeight: "700", fontSize: 14 },
     noteCard: { backgroundColor: c.surface, borderRadius: 16, padding: 14 },
     noteText: { fontSize: 15, color: c.text, lineHeight: 22 },
     buttonRow: { flexDirection: "row", gap: 10, marginTop: 2 },

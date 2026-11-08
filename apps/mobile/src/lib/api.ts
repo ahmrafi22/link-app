@@ -113,6 +113,7 @@ export type ApiItem = {
   description: string | null;
   thumbnail_url: string | null;
   enrichment_level: string;
+  status: string;
   seen_count: number;
   created_at: string;
   last_seen_at: string | null;
@@ -180,6 +181,33 @@ export async function getCaptures(
       return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
     }
     return { ok: true, items: Array.isArray(body.items) ? body.items : [] };
+  } catch {
+    return { ok: false, error: "network error" };
+  }
+}
+
+/**
+ * POST /api/captures/:id/retry — forced server re-enrichment (retry button
+ * on server-failed items). Returns the fresh row to patch locally.
+ */
+export async function retryCapture(
+  config: ApiConfig,
+  serverId: string
+): Promise<{ ok: true; item: ApiItem } | Fail> {
+  try {
+    const { res, timedOut } = await apiFetch(
+      config,
+      `/api/captures/${serverId}/retry`,
+      { method: "POST" },
+      30000
+    );
+    if (timedOut) return { ok: false, error: "timed out" };
+    if (!res) return { ok: false, error: "network error" };
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) {
+      return { ok: false, error: body?.error ?? `HTTP ${res.status}` };
+    }
+    return { ok: true, item: body.item as ApiItem };
   } catch {
     return { ok: false, error: "network error" };
   }
