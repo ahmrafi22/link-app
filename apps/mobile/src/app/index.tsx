@@ -498,11 +498,12 @@ function createStyles(c: ThemeColors) {
       color: c.text,
     },
     noResults: { color: c.dim, textAlign: "center", marginTop: 24, fontSize: 14 },
-    // folder grid — glassmorphism pockets, no card chrome
+    // folder grid — glassmorphism pockets, no card chrome.
+    // Fixed 47% width: two equal columns every row, never a stretched
+    // odd-last-card (the old flexGrow made single folders go full-width).
     folderWrap: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
     folderCard: {
-      flexGrow: 1,
-      flexBasis: "46%",
+      width: "47%",
       alignItems: "center",
       paddingBottom: 6,
     },

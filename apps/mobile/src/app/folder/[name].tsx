@@ -244,7 +244,7 @@ function createStyles(c: ThemeColors) {
       borderColor: c.border,
       overflow: "hidden",
     },
-    segBtn: { paddingHorizontal: 13, paddingVertical: 6 },
+    segBtn: { width: 40, height: 28, alignItems: "center", justifyContent: "center" },
     segBtnActive: { backgroundColor: c.pillBg },
     segText: { fontSize: 14, color: c.dim, fontWeight: "700" },
     segTextActive: { color: c.onAccent },
