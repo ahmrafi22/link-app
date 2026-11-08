@@ -8,6 +8,9 @@
 // every stored vector (plan rule: a switch = full re-embed).
 
 const GEMINI_LLM = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
+// if the configured model isn't available for this key, walk down to known-
+// good flash models rather than leaving items un-AI'd
+const GEMINI_LLM_FALLBACKS = ["gemini-2.5-flash", "gemini-flash-latest"];
 const GEMINI_EMBED = process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001";
 const EMBED_DIMS = 768;
 const TIMEOUT_MS = 30_000;
@@ -55,26 +58,30 @@ export async function aiJson(
 ): Promise<Record<string, unknown> | null> {
   try {
     if (GEMINI_KEY) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_LLM}:generateContent`,
-        {
-          method: "POST",
-          headers: { "x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ parts: [{ text: user }] }],
-            generationConfig: {
-              responseMimeType: "application/json",
-              temperature: 0.2,
-            },
-          }),
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        }
-      );
-      if (!res.ok) return null;
-      const body = await res.json().catch(() => null);
-      const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
-      return typeof text === "string" ? extractJson(text) : null;
+      for (const model of [GEMINI_LLM, ...GEMINI_LLM_FALLBACKS]) {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: system }] },
+              contents: [{ parts: [{ text: user }] }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                temperature: 0.2,
+              },
+            }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          }
+        );
+        if (res.status === 404 || res.status === 429) continue; // model unavailable → next
+        if (!res.ok) return null;
+        const body = await res.json().catch(() => null);
+        const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return typeof text === "string" ? extractJson(text) : null;
+      }
+      return null;
     }
 
     if (OPENAI_KEY) {

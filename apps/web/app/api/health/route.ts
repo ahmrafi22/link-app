@@ -1,3 +1,4 @@
+import { aiProvider } from "@/lib/ai";
 import { appSecretConfigured, supabaseConfigured } from "@/lib/env";
 import { sb, sbErrorMessage } from "@/lib/supabase";
 
@@ -32,7 +33,8 @@ export async function GET() {
     service: "linkvault-web",
     time: new Date().toISOString(),
     auth: appSecretConfigured() ? "configured" : "missing",
-    supabase,
+    supabase: db,
+    ai: aiProvider() ?? "not_configured",
     ...(detail ? { supabaseDetail: detail } : {}),
   });
 }
