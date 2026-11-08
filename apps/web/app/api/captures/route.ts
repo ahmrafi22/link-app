@@ -141,7 +141,9 @@ export async function GET(req: Request) {
   const state = params.get("state");
 
   const query = new URLSearchParams({
-    select: "*",
+    // embed the item's category (FK items.category_id → categories.id) so
+    // clients can group by category without a second request
+    select: "*,categories(id,name,color)",
     order: "created_at.desc",
     limit: String(limit),
   });
