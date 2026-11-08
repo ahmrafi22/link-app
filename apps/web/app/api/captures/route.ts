@@ -1,5 +1,6 @@
 import { after } from "next/server";
 
+import { aiEnrichItem } from "@/lib/aiEnrich";
 import { checkAuth, unauthorized } from "@/lib/auth";
 import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
@@ -125,14 +126,19 @@ export async function POST(req: Request) {
   }
   const created = inserted[0];
 
-  // Phase ③: enrichment runs after the response is sent — the capture
-  // returns in ~100ms and the item fills in over the next few seconds.
-  // Idempotent + cache-backed; failures leave status=pending/failed for cron.
+  // Phase ③ + ④: enrichment then the AI pass run after the response is sent
+  // — the capture returns in ~100ms and the item fills in over the next
+  // ~10-20s. Both are idempotent + guarded; failures leave retry paths.
   after(async () => {
     try {
       await enrichItem(String(created.id));
     } catch {
-      // cron sweep retries anything that ends up stale
+      // sweep/retry paths recover anything that ends up stale
+    }
+    try {
+      await aiEnrichItem(String(created.id));
+    } catch {
+      // no key configured, quota exhausted — item stays uncategorized
     }
   });
 

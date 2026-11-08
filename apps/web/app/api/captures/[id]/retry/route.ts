@@ -1,3 +1,4 @@
+import { aiEnrichItem } from "@/lib/aiEnrich";
 import { checkAuth, unauthorized } from "@/lib/auth";
 import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
@@ -33,6 +34,13 @@ export async function POST(
   }
   if (!result) {
     return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
+  // the AI pass rides along on a manual retry (summary/topics/category)
+  try {
+    await aiEnrichItem(id, { force: true });
+  } catch {
+    // item is still enriched; AI stays optional
   }
 
   const res = await sb(`items?id=eq.${id}&select=*&limit=1`);
