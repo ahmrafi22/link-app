@@ -13,6 +13,24 @@ export async function GET() {
   let supabase: "not_configured" | "ok" | "error" = "not_configured";
   let detail: string | null = null;
 
+  // live AI probe: reports the provider's HTTP status so a bad key is
+  // visible from the outside without exposing the key itself
+  let aiProbe: string | null = null;
+  const provider = aiProvider();
+  if (provider === "gemini") {
+    try {
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+        headers: { "x-goog-api-key": process.env.GEMINI_API_KEY ?? "" },
+        signal: AbortSignal.timeout(8000),
+      });
+      aiProbe = r.ok ? "ok" : `http_${r.status}`;
+    } catch {
+      aiProbe = "network_error";
+    }
+  } else if (provider === "openai") {
+    aiProbe = "openai_no_probe"; // key format varies by provider; LLM calls are the test
+  }
+
   if (supabaseConfigured()) {
     try {
       const res = await sb("categories?select=id&limit=1");
@@ -34,7 +52,8 @@ export async function GET() {
     time: new Date().toISOString(),
     auth: appSecretConfigured() ? "configured" : "missing",
     supabase,
-    ai: aiProvider() ?? "not_configured",
+    ai: provider ?? "not_configured",
+    aiProbe,
     ...(detail ? { supabaseDetail: detail } : {}),
   });
 }
