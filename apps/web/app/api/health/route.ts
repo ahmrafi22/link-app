@@ -33,7 +33,7 @@ export async function GET() {
     service: "linkvault-web",
     time: new Date().toISOString(),
     auth: appSecretConfigured() ? "configured" : "missing",
-    supabase: db,
+    supabase,
     ai: aiProvider() ?? "not_configured",
     ...(detail ? { supabaseDetail: detail } : {}),
   });
