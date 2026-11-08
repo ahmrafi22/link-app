@@ -22,7 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { createCardStyles, MasonryGrid } from "@/components/cards";
 import { getApiConfig } from "@/lib/api";
 import { DEMO_URLS, enrichLinks, selectEnrichTargets } from "@/lib/extract";
-import { folderLabel, foldersFromItems, type Folder } from "@/lib/folders";
+import { folderLabel, foldersFromItems, type Folder, type FolderMode } from "@/lib/folders";
 import { drainInbox, inboxEntryToShareInput } from "@/lib/inbox";
 import { noteItemDeleted, syncVault } from "@/lib/sync";
 import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
@@ -43,6 +43,7 @@ export default function InboxScreen() {
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   const [fetchingCount, setFetchingCount] = useState(0);
   const [syncOn, setSyncOn] = useState(false);
+  const [folderMode, setFolderMode] = useState<FolderMode>("platform");
 
   const flash = useCallback((text: string) => {
     setNotice({ id: Date.now(), text });
@@ -146,8 +147,11 @@ export default function InboxScreen() {
     return () => sub.remove();
   }, [loaded, add, flash, runSync, runEnrichment]);
 
-  // one folder per platform present, plus All / Starred / Notes
-  const folders = useMemo(() => foldersFromItems(items), [items]);
+  // one folder per platform — or per category, per the mode toggle
+  const folders = useMemo(
+    () => foldersFromItems(items, folderMode),
+    [items, folderMode]
+  );
 
   // while searching, the folder grid is replaced by matching items
   const searchResults = useMemo(() => {
@@ -297,15 +301,51 @@ export default function InboxScreen() {
           ) : !loaded ? null : items.length === 0 ? (
             <EmptyState styles={styles} onDemo={addDemoLinks} />
           ) : (
-            <View style={styles.folderWrap}>
-              {folders.map((folder) => (
-                <FolderCard
-                  key={folder.key}
-                  folder={folder}
-                  styles={styles}
-                  onPress={() => router.push(`/folder/${folder.key}`)}
-                />
-              ))}
+            <View style={styles.folderArea}>
+              <View style={styles.modeSeg}>
+                <Pressable
+                  style={[styles.modeBtn, folderMode === "platform" && styles.modeBtnActive]}
+                  onPress={() => setFolderMode("platform")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: folderMode === "platform" }}
+                >
+                  <Text
+                    style={[
+                      styles.modeBtnText,
+                      folderMode === "platform" && styles.modeBtnTextActive,
+                    ]}
+                  >
+                    Platforms
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modeBtn, folderMode === "category" && styles.modeBtnActive]}
+                  onPress={() => setFolderMode("category")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: folderMode === "category" }}
+                >
+                  <Text
+                    style={[
+                      styles.modeBtnText,
+                      folderMode === "category" && styles.modeBtnTextActive,
+                    ]}
+                  >
+                    Categories
+                  </Text>
+                </Pressable>
+              </View>
+              <View style={styles.folderWrap}>
+                {folders.map((folder) => (
+                  <FolderCard
+                    key={folder.key}
+                    folder={folder}
+                    styles={styles}
+                    onPress={() =>
+                      router.push({ pathname: "/folder/[name]", params: { name: folder.key } })
+                    }
+                  />
+                ))}
+              </View>
             </View>
           )}
         </ScrollView>
@@ -377,12 +417,15 @@ function FolderCard({
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
 }) {
-  const noun =
-    folder.key === "note" ? "note" : folder.key === "starred" ? "item" : "link";
+  const c = useTheme();
+  const isCategory = folder.key.startsWith("cat:");
+  const noun = isCategory || folder.key === "starred" ? "item" : folder.key === "note" ? "note" : "link";
   const nounPlural =
-    folder.key === "note" ? "notes" : folder.key === "starred" ? "items" : "links";
+    isCategory || folder.key === "starred" ? "items" : folder.key === "note" ? "notes" : "links";
   const top = folder.items.slice(0, 3);
-  const tile = platformTile(folder.key === "note" ? "note" : folder.key, "link");
+  const tile = isCategory
+    ? { glyph: "🏷", bg: c.accent }
+    : platformTile(folder.key === "note" ? "note" : folder.key, "link");
 
   // fan layouts: thumbnails poke out of the pocket's top edge
   const placements = [
@@ -498,11 +541,33 @@ function createStyles(c: ThemeColors) {
       color: c.text,
     },
     noResults: { color: c.dim, textAlign: "center", marginTop: 24, fontSize: 14 },
-    // folder grid — glassmorphism pockets, no card chrome
+    // platform ↔ category mode switch above the folder grid
+    folderArea: { gap: 12 },
+    modeSeg: {
+      flexDirection: "row",
+      alignSelf: "center",
+      backgroundColor: c.surface,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 3,
+      gap: 3,
+    },
+    modeBtn: {
+      width: 118,
+      paddingVertical: 7,
+      borderRadius: 999,
+      alignItems: "center",
+    },
+    modeBtnActive: { backgroundColor: c.pillBg },
+    modeBtnText: { fontSize: 13.5, fontWeight: "700", color: c.dim },
+    modeBtnTextActive: { color: c.onAccent },
+    // folder grid — glassmorphism pockets, no card chrome.
+    // Fixed 47% width: two equal columns every row, never a stretched
+    // odd-last-card (the old flexGrow made single folders go full-width).
     folderWrap: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
     folderCard: {
-      flexGrow: 1,
-      flexBasis: "46%",
+      width: "47%",
       alignItems: "center",
       paddingBottom: 6,
     },

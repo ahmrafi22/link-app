@@ -116,6 +116,8 @@ export type ApiItem = {
   seen_count: number;
   created_at: string;
   last_seen_at: string | null;
+  /** embedded via FK when selecting *,categories(...) on GET */
+  categories?: { id: string; name: string; color: string | null } | null;
 };
 
 export type CapturePayload = {

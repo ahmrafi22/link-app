@@ -33,6 +33,9 @@ export type VaultItem = {
   serverId: string | null;
   /** Last successful upload time; null = still in the outbox. */
   syncedAt: string | null;
+  /** AI-assigned category (denormalized from the server's categories table). */
+  categoryId: string | null;
+  categoryName: string | null;
 };
 
 const PLATFORM_MAP: Array<[string[], string]> = [
@@ -211,6 +214,8 @@ export async function loadItems(): Promise<VaultItem[]> {
       favorite: false,
       serverId: null,
       syncedAt: null,
+      categoryId: null,
+      categoryName: null,
       ...item,
     })) as VaultItem[];
   } catch {
@@ -274,6 +279,8 @@ export function saveShareInput(
     favorite: false,
     serverId: null,
     syncedAt: null,
+    categoryId: null,
+    categoryName: null,
     createdAt: now,
     lastSeenAt: now,
     seenCount: 1,

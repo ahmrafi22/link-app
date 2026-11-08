@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -27,6 +28,12 @@ import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 const CELL_W = 168;
 const CELL_H = 196;
 const COLS = 5;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+
+function clampZoom(z: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 20) / 20));
+}
 
 function hashId(s: string): number {
   let h = 7;
@@ -108,7 +115,13 @@ export default function FolderScreen() {
 
 type FolderStyles = CardStyles & ReturnType<typeof createStyles>;
 
-/** Pannable scattered board: a vertical ScrollView wrapping a horizontal one. */
+/**
+ * Pannable scattered board: a vertical ScrollView wrapping a horizontal one.
+ * Pinch to zoom (or the glass −/+ chips; double-tap resets). Zoom scales the
+ * whole board — cards, gaps, rotations — via a transform with a top-left
+ * origin inside ScrollViews whose content size is base × zoom, so panning
+ * reaches the true scaled edges without fighting the gesture.
+ */
 function CanvasBoard({
   items,
   styles,
@@ -121,63 +134,134 @@ function CanvasBoard({
   const { width: vw, height: vh } = useWindowDimensions();
   const vRef = useRef<ScrollView>(null);
   const hRef = useRef<ScrollView>(null);
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  const [pinching, setPinching] = useState(false);
+  const baseRef = useRef(1);
+
+  const applyZoom = useCallback((z: number) => {
+    const clamped = clampZoom(z);
+    zoomRef.current = clamped;
+    setZoom(clamped);
+  }, []);
+
+  // runOnJS(true): gesture callbacks stay on the JS thread so plain
+  // setState works whether or not Reanimated worklets are active.
+  const gesture = useMemo(() => {
+    const pinch = Gesture.Pinch()
+      .runOnJS(true)
+      .onBegin(() => {
+        baseRef.current = zoomRef.current;
+        setPinching(true);
+      })
+      .onUpdate((e) => applyZoom(baseRef.current * e.scale))
+      .onEnd(() => setPinching(false));
+    const doubleTap = Gesture.Tap()
+      .runOnJS(true)
+      .numberOfTaps(2)
+      .onEnd((_e, success) => {
+        if (success) applyZoom(1);
+      });
+    return Gesture.Exclusive(pinch, doubleTap);
+  }, [applyZoom]);
+
   const rows = Math.max(1, Math.ceil(items.length / COLS));
-  const contentW = COLS * CELL_W + 80;
-  const contentH = rows * CELL_H + 80;
+  const boardW = COLS * CELL_W + 80;
+  const boardH = rows * CELL_H + 80;
+  const contentW = boardW * zoom;
+  const contentH = boardH * zoom;
 
   // start centered so the scatter reads as a canvas, not a list
   useEffect(() => {
-    hRef.current?.scrollTo({ x: Math.max(0, (contentW - vw) / 2), animated: false });
+    hRef.current?.scrollTo({ x: Math.max(0, (boardW - vw) / 2), animated: false });
     vRef.current?.scrollTo({
-      y: Math.max(0, Math.min(contentH - vh, (contentH - vh) / 2)),
+      y: Math.max(0, Math.min(boardH - vh, (boardH - vh) / 2)),
       animated: false,
     });
-  }, [contentW, contentH, vw, vh]);
+    // center only on mount / item-count change — not on zoom changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardW, boardH, vw, vh]);
 
   return (
-    <ScrollView
-      ref={vRef}
-      style={styles.flex}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.grow}
-    >
-      <ScrollView
-        ref={hRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ height: contentH }}
-        contentContainerStyle={{ width: contentW }}
-      >
-        <View style={{ width: contentW, height: contentH }}>
-          {items.map((item, i) => {
-            const col = i % COLS;
-            const row = Math.floor(i / COLS);
-            const h = hashId(item.id);
-            const jx = ((h % 56) - 28);
-            const jy = (((h >> 3) % 56) - 28);
-            const rot = ((h >> 6) % 22) - 11;
-            return (
-              <Pressable
-                key={item.id}
-                onPress={() => onOpen(item)}
-                style={[
-                  styles.canvasItem,
-                  {
-                    left: 40 + col * CELL_W + jx,
-                    top: 40 + row * CELL_H + jy,
-                    transform: [{ rotate: `${rot}deg` }],
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={itemDisplayTitle(item)}
-              >
-                <CanvasItemCard item={item} styles={styles} />
-              </Pressable>
-            );
-          })}
+    <View style={styles.flex}>
+      <GestureDetector gesture={gesture}>
+        <ScrollView
+          ref={vRef}
+          style={styles.flex}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={!pinching}
+          contentContainerStyle={styles.grow}
+        >
+          <ScrollView
+            ref={hRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            scrollEnabled={!pinching}
+            style={{ height: contentH }}
+            contentContainerStyle={{ width: contentW }}
+          >
+            <View
+              style={{
+                width: boardW,
+                height: boardH,
+                transform: [{ scale: zoom }],
+                transformOrigin: "top left",
+              }}
+            >
+              {items.map((item, i) => {
+                const col = i % COLS;
+                const row = Math.floor(i / COLS);
+                const h = hashId(item.id);
+                const jx = ((h % 56) - 28);
+                const jy = (((h >> 3) % 56) - 28);
+                const rot = ((h >> 6) % 22) - 11;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => onOpen(item)}
+                    style={[
+                      styles.canvasItem,
+                      {
+                        left: 40 + col * CELL_W + jx,
+                        top: 40 + row * CELL_H + jy,
+                        transform: [{ rotate: `${rot}deg` }],
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={itemDisplayTitle(item)}
+                  >
+                    <CanvasItemCard item={item} styles={styles} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </ScrollView>
+      </GestureDetector>
+
+      {/* zoom controls — box-none so the canvas scrolls between the chips */}
+      <View style={styles.zoomBar} pointerEvents="box-none">
+        <Pressable
+          style={({ pressed }) => [styles.zoomBtn, pressed && { opacity: 0.6 }]}
+          onPress={() => applyZoom(zoomRef.current - 0.25)}
+          accessibilityRole="button"
+          accessibilityLabel="Zoom out"
+        >
+          <Text style={styles.zoomBtnText}>−</Text>
+        </Pressable>
+        <View style={styles.zoomLevel}>
+          <Text style={styles.zoomLevelText}>{Math.round(zoom * 100)}%</Text>
         </View>
-      </ScrollView>
-    </ScrollView>
+        <Pressable
+          style={({ pressed }) => [styles.zoomBtn, pressed && { opacity: 0.6 }]}
+          onPress={() => applyZoom(zoomRef.current + 0.25)}
+          accessibilityRole="button"
+          accessibilityLabel="Zoom in"
+        >
+          <Text style={styles.zoomBtnText}>+</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -244,7 +328,7 @@ function createStyles(c: ThemeColors) {
       borderColor: c.border,
       overflow: "hidden",
     },
-    segBtn: { paddingHorizontal: 13, paddingVertical: 6 },
+    segBtn: { width: 40, height: 28, alignItems: "center", justifyContent: "center" },
     segBtnActive: { backgroundColor: c.pillBg },
     segText: { fontSize: 14, color: c.dim, fontWeight: "700" },
     segTextActive: { color: c.onAccent },
@@ -276,5 +360,42 @@ function createStyles(c: ThemeColors) {
     canvasBody: { paddingTop: 5, paddingBottom: 2, paddingHorizontal: 2, gap: 1 },
     canvasTitle: { fontSize: 11, fontWeight: "600", color: c.text },
     canvasWhen: { fontSize: 9.5, color: c.dim },
+    // zoom controls (glass chips, bottom-right)
+    zoomBar: {
+      position: "absolute",
+      right: 14,
+      bottom: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    zoomBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 999,
+      backgroundColor: c.glassFill,
+      borderWidth: 1,
+      borderColor: c.glassBorder,
+      alignItems: "center",
+      justifyContent: "center",
+      elevation: 4,
+      shadowColor: "#000",
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+    },
+    zoomBtnText: { color: c.text, fontSize: 22, fontWeight: "700", marginTop: -2 },
+    zoomLevel: {
+      minWidth: 52,
+      height: 28,
+      borderRadius: 999,
+      backgroundColor: c.glassFill,
+      borderWidth: 1,
+      borderColor: c.glassBorder,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 8,
+    },
+    zoomLevelText: { color: c.text, fontSize: 12, fontWeight: "700" },
   });
 }
