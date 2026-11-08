@@ -285,6 +285,13 @@ export default function ItemDetailScreen() {
               </Text>
             </View>
           )}
+          {item.categoryName && (
+            <View style={[styles.chip, styles.categoryChip]}>
+              <Text style={[styles.chipText, styles.categoryChipText]}>
+                🏷 {item.categoryName}
+              </Text>
+            </View>
+          )}
         </View>
 
         {levelHint(item) ? <Text style={styles.levelHint}>{levelHint(item)}</Text> : null}
@@ -501,6 +508,8 @@ function createStyles(c: ThemeColors) {
     levelFullText: { color: "#63D68F" },
     levelMetadata: { backgroundColor: "#1F2A3D" },
     levelMetadataText: { color: "#7EB3E8" },
+    categoryChip: { backgroundColor: c.accentSoft },
+    categoryChipText: { color: c.accent },
     description: { fontSize: 15, color: c.dim, lineHeight: 22 },
     levelHint: { fontSize: 12.5, color: c.dim, lineHeight: 17, marginTop: -6 },
     // shown only when the server pipeline marked the item failed
