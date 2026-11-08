@@ -387,5 +387,14 @@ Branch `feat/server-enrichment`, 5 commits, merged to `main`, Vercel auto-deploy
 
 **Phase ④ next**: Gemini embeddings + one-call summary/categorization, duplicates, feedback events — needs `GEMINI_API_KEY` in Vercel.
 
+---
+
+## Future improvements (parked, not scheduled)
+
+- **Daily cron sweep + Supabase heartbeat (parked 2026-11-08, user decision)** — the sweep endpoint (`/api/cron/sweep`) is built, tested and stays in the codebase, but the schedule (`vercel.json`) was removed. Consequences, all acceptable for now:
+  - failed items are **not** auto-retried daily — the server still enriches once at capture time (`after()`), and any item can be re-swept manually: `curl -H "Authorization: Bearer $CRON_SECRET" https://web-two-lake-29.vercel.app/api/cron/sweep`
+  - Supabase **pauses after ~1 week of no activity** — regular app use counts as activity, so this only bites if the vault is abandoned for 7+ days (restore free from the Supabase dashboard).
+  - To re-activate: restore `vercel.json` `{"crons":[{"path":"/api/cron/sweep","schedule":"0 5 * * *"}]}` + set `CRON_SECRET` in Vercel + redeploy.
+
 
 

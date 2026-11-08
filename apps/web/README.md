@@ -10,7 +10,7 @@ Next.js (App Router) on Vercel Hobby: capture API now, triage web UI in a later 
 | `POST /api/captures` | Bearer `APP_SECRET` | capture intake: `{url?, text?, title?, capturedAt?, clientExtracted?}`; dedupes on `url_hash` (existing → bumps `seen_count`, returns `{saved:"existing"}`); new → inserts `status=pending`, returns 201 with the row |
 | `GET /api/captures?state=&limit=` | Bearer `APP_SECRET` | newest-first feed (`state` ∈ inbox/saved/follow_up/archived, limit 1–200, default 50) |
 | `DELETE /api/captures/:id` | Bearer `APP_SECRET` | remove one item (phone delete sync) |
-| `GET\|POST /api/cron/sweep` | Bearer `CRON_SECRET` | daily (vercel.json, 05:00 UTC): re-enrich stale pending/failed items (batch 10) + Supabase heartbeat write |
+| `GET\|POST /api/cron/sweep` | Bearer `CRON_SECRET` | **manual only** — re-enrich stale pending/failed items (batch 10) + Supabase heartbeat. Not scheduled; daily cron is a future improvement |
 
 `clientExtracted` carries the phone's on-device extraction result (`{title, description, image, source}`) so the server skips re-fetching — sets `enrichment_level` to `full_device`/`metadata`. The server fills gaps in `after()` (Phase ③ waterfall: platform fetchers → OG, 6 s/step, successes cached 30 days in `fetch_cache`, errors 1 day) and the daily cron sweeps anything left stale.
 

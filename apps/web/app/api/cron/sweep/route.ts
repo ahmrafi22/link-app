@@ -6,11 +6,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Daily cron (vercel.json): re-run enrichment for stale pending/failed items
- * and heartbeat-write Supabase so the free project never pauses.
- *
- * Auth: Vercel automatically sends `Authorization: Bearer $CRON_SECRET` when
- * that env var is set; manual curls must send the same header. Fail closed.
+ * Manual/optional sweep — re-runs enrichment for stale pending/failed items
+ * and heartbeat-writes Supabase. NOT currently scheduled: the daily cron was
+ * parked as a future improvement (see PLAN.md). Trigger by hand with:
+ *   curl -H "Authorization: Bearer $CRON_SECRET" <app>/api/cron/sweep
+ * Auth: fail-closed — requires the CRON_SECRET bearer header.
  */
 async function sweep(req: Request) {
   const secret = process.env.CRON_SECRET;
