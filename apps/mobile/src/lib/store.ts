@@ -33,6 +33,8 @@ export type VaultItem = {
   serverId: string | null;
   /** Last successful upload time; null = still in the outbox. */
   syncedAt: string | null;
+  /** Server pipeline status (pending/ready/failed) — drives the retry UI. */
+  serverStatus: string | null;
   /** AI-assigned category (denormalized from the server's categories table). */
   categoryId: string | null;
   categoryName: string | null;
@@ -214,6 +216,7 @@ export async function loadItems(): Promise<VaultItem[]> {
       favorite: false,
       serverId: null,
       syncedAt: null,
+      serverStatus: null,
       categoryId: null,
       categoryName: null,
       ...item,
@@ -279,6 +282,7 @@ export function saveShareInput(
     favorite: false,
     serverId: null,
     syncedAt: null,
+    serverStatus: null,
     categoryId: null,
     categoryName: null,
     createdAt: now,

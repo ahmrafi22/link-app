@@ -408,8 +408,12 @@ function levelOf(r: EnrichResult | null): "full_server" | "metadata" | "url_only
 /**
  * Enrich one item by id. Idempotent; safe to call repeatedly (cache +
  * level-rank guards). Fills gaps — device-extracted data is never downgraded.
+ * `force` bypasses the negative-cache window (manual retry intent).
  */
-export async function enrichItem(id: string): Promise<{ level: string; status: string } | null> {
+export async function enrichItem(
+  id: string,
+  opts: { force?: boolean } = {}
+): Promise<{ level: string; status: string } | null> {
   const res = await sb(`items?id=eq.${id}&select=*`);
   const rows = (await res.json().catch(() => null)) as Array<Record<string, any>> | null;
   const item = rows?.[0];
@@ -432,7 +436,7 @@ export async function enrichItem(id: string): Promise<{ level: string; status: s
   const hash = item.url_hash ?? urlHash(item.url);
   const cached = await readCache(hash);
   let result = cached.hit;
-  if (!result && !cached.skip) {
+  if (!result && (!cached.skip || opts.force)) {
     result = await waterfall(item.url, detectPlatform(item.url));
     if (result) {
       await writeCache(hash, { result }, result.provider);

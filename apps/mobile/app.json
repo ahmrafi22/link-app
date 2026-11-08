@@ -2,7 +2,7 @@
   "expo": {
     "name": "Link Vault",
     "slug": "linkvault",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "linkvault",
