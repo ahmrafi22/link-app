@@ -7,8 +7,8 @@
 // items.embedding column is vector(768) and switching models invalidates
 // every stored vector (plan rule: a switch = full re-embed).
 
-const GEMINI_LLM = "gemini-2.5-flash";
-const GEMINI_EMBED = "gemini-embedding-001";
+const GEMINI_LLM = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
+const GEMINI_EMBED = process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001";
 const EMBED_DIMS = 768;
 const TIMEOUT_MS = 30_000;
 
