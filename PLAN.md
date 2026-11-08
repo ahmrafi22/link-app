@@ -406,3 +406,9 @@ Branch `feat/server-enrichment`, 5 commits, merged to `main`, Vercel auto-deploy
 
 
 
+
+## Phase ⑤ — Search & Polish (2026-11-08, SHIPPED as v0.5.4 / build-22, branch feat/search-polish)
+
+Server: hybrid GET /api/search (match_items RRF; FTS-only fallback without an AI key), GET /api/captures/:id/related (vector neighbors), category management (PATCH rename / DELETE / :id/merge — all record feedback events).
+Phone: AI summary card + topic chips + related strip on item detail; recategorize bottom-sheet (pick existing / create new / clear — writes the feedback event, category_source=manual which AI never overrides); local search now covers summary + topics + category name; "N attempts" honesty label replaces "timeouts". Local search stays instant + offline; the server search endpoint is ready for the web UI later.
+All 5 core phases COMPLETE. Parked: daily cron (future improvements); pending: valid GEMINI_API_KEY for the AI e2e test.
