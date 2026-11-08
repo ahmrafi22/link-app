@@ -158,7 +158,17 @@ export default function InboxScreen() {
     const q = search.trim().toLowerCase();
     if (!q) return null;
     return items.filter((i) =>
-      [i.title, i.url, i.rawText, i.description, i.siteName, i.platform]
+      [
+        i.title,
+        i.url,
+        i.rawText,
+        i.description,
+        i.siteName,
+        i.platform,
+        i.summary,
+        i.categoryName,
+        ...(i.topics ?? []),
+      ]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q))
     );

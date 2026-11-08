@@ -118,6 +118,8 @@ function itemFromApiItem(a: ApiItem): VaultItem {
     enrichAttempts: 0,
     favorite: false,
     serverStatus: a.status ?? null,
+    summary: a.summary ?? null,
+    topics: Array.isArray(a.topics) ? a.topics : null,
     categoryId: a.categories?.id ?? null,
     categoryName: a.categories?.name ?? null,
     createdAt: a.created_at,
@@ -150,6 +152,8 @@ export function mergeServerIntoLocal(local: VaultItem, a: ApiItem): VaultItem {
     platform: local.platform ?? a.platform,
     categoryId: a.categories?.id ?? local.categoryId,
     categoryName: a.categories?.name ?? local.categoryName,
+    summary: a.summary ?? local.summary,
+    topics: Array.isArray(a.topics) && a.topics.length > 0 ? a.topics : local.topics,
     enrichmentLevel:
       localRank >= serverRank
         ? local.enrichmentLevel

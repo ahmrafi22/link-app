@@ -7,16 +7,26 @@ import {
   Image,
   ImageStyle,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getApiConfig, retryCapture } from "@/lib/api";
+import {
+  createCategory,
+  getApiConfig,
+  listCategories,
+  relatedCaptures,
+  retryCapture,
+  setItemCategory,
+  type CategoryInfo,
+} from "@/lib/api";
 import { extractForUrl } from "@/lib/extract";
 import { mergeServerIntoLocal, noteItemDeleted } from "@/lib/sync";
 import { domainOf, itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
@@ -80,6 +90,13 @@ export default function ItemDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [heroRatio, setHeroRatio] = useState<number | null>(null);
+  const [related, setRelated] = useState<
+    Array<{ id: string; title: string | null; platform: string | null }> | null
+  >(null);
+  const [catPicker, setCatPicker] = useState(false);
+  const [cats, setCats] = useState<CategoryInfo[]>([]);
+  const [newCat, setNewCat] = useState("");
+  const [catBusy, setCatBusy] = useState(false);
 
   const thumbnailUrl = item?.thumbnailUrl ?? null;
   useEffect(() => {
@@ -103,6 +120,23 @@ export default function ItemDetailScreen() {
     const t = setTimeout(() => setNotice(null), 2400);
     return () => clearTimeout(t);
   }, [notice]);
+
+  // related items — server vector neighbors, only navigable ones shown
+  useEffect(() => {
+    let alive = true;
+    setRelated(null);
+    void (async () => {
+      if (!item?.serverId) return;
+      const config = await getApiConfig();
+      if (!config) return;
+      const r = await relatedCaptures(config, item.serverId);
+      if (alive && r.ok && r.items.length > 0) setRelated(r.items);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.serverId]);
 
   const openLink = useCallback(async (url: string) => {
     try {
@@ -179,6 +213,74 @@ export default function ItemDetailScreen() {
     }
   }, [item, retrying, updateMany]);
 
+  const openPicker = useCallback(async () => {
+    const config = await getApiConfig();
+    if (!config) {
+      setNotice("Connect a server in Settings first");
+      return;
+    }
+    setCatBusy(true);
+    const r = await listCategories(config);
+    setCatBusy(false);
+    if (!r.ok) {
+      setNotice(`Couldn't load categories: ${r.error}`);
+      return;
+    }
+    setCats(r.categories);
+    setNewCat("");
+    setCatPicker(true);
+  }, []);
+
+  const applyCategory = useCallback(
+    async (categoryId: string | null, categoryName: string | null) => {
+      if (!item?.serverId) return;
+      const config = await getApiConfig();
+      if (!config) {
+        setNotice("Connect a server in Settings first");
+        return;
+      }
+      setCatBusy(true);
+      const r = await setItemCategory(config, item.serverId, categoryId);
+      setCatBusy(false);
+      if (!r.ok) {
+        setNotice(`Failed: ${r.error}`);
+        return;
+      }
+      updateMany([
+        { id: item.id, patch: { categoryId, categoryName: r.category_name } },
+      ]);
+      setCatPicker(false);
+      setNotice(r.category_name ? `Filed under “${r.category_name}”` : "Removed from category");
+    },
+    [item, updateMany]
+  );
+
+  const createAndApply = useCallback(async () => {
+    const name = newCat.trim();
+    if (!name || catBusy || !item?.serverId) return;
+    setCatBusy(true);
+    const config = await getApiConfig();
+    if (!config) {
+      setCatBusy(false);
+      return;
+    }
+    const cr = await createCategory(config, name);
+    if (!cr.ok) {
+      setCatBusy(false);
+      setNotice(`Failed: ${cr.error}`);
+      return;
+    }
+    const r = await setItemCategory(config, item.serverId, cr.category.id);
+    setCatBusy(false);
+    if (!r.ok) {
+      setNotice(`Failed: ${r.error}`);
+      return;
+    }
+    updateMany([{ id: item.id, patch: { categoryId: cr.category.id, categoryName: name } }]);
+    setCatPicker(false);
+    setNotice(`Filed under “${name}”`);
+  }, [newCat, catBusy, item, updateMany]);
+
   if (!loaded) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -204,11 +306,11 @@ export default function ItemDetailScreen() {
     item.kind === "link" && (!item.enrichmentLevel || item.enrichmentLevel === "url_only");
   const metaRows: Array<[string, string]> = [];
   if (item.kind === "link") {
-    // diagnostics: shows whether data was fetched, and how many times it timed out
+    // diagnostics: shows whether data was fetched, and how many attempts it took
     metaRows.push([
       "Page data",
       `${levelLabel(item)}${
-        item.enrichAttempts > 0 ? ` · ${item.enrichAttempts} timeouts` : ""
+        item.enrichAttempts > 0 ? ` · ${item.enrichAttempts} attempts` : ""
       }`,
     ]);
   }
@@ -321,6 +423,23 @@ export default function ItemDetailScreen() {
           <Text style={styles.description}>{item.description}</Text>
         ) : null}
 
+        {item.summary ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>✦ AI summary</Text>
+            <Text style={styles.summaryText}>{item.summary}</Text>
+          </View>
+        ) : null}
+
+        {item.topics && item.topics.length > 0 ? (
+          <View style={styles.chipRow}>
+            {item.topics.map((t) => (
+              <View key={t} style={[styles.chip, styles.topicChip]}>
+                <Text style={[styles.chipText, styles.topicChipText]}>#{t}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {item.kind === "text" && item.rawText ? (
           <View style={styles.noteCard}>
             <Text style={styles.noteText}>{item.rawText}</Text>
@@ -340,6 +459,15 @@ export default function ItemDetailScreen() {
               accessibilityLabel="Re-fetch page data"
             >
               <Text style={styles.secondaryBtnText}>{refreshing ? "…" : "↻"}</Text>
+            </Pressable>
+          )}
+          {item.serverId && (
+            <Pressable
+              style={styles.secondaryBtn}
+              onPress={() => void openPicker()}
+              accessibilityLabel="Change category"
+            >
+              <Text style={styles.secondaryBtnText}>🏷</Text>
             </Pressable>
           )}
           <Pressable
@@ -391,6 +519,37 @@ export default function ItemDetailScreen() {
           ))}
         </View>
 
+        {(() => {
+          const relatedNav = (related ?? [])
+            .map((r) => ({ ...r, localId: items.find((i) => i.serverId === r.id)?.id ?? null }))
+            .filter((r) => r.localId !== null)
+            .slice(0, 6);
+          if (relatedNav.length === 0) return null;
+          return (
+            <View style={styles.relatedWrap}>
+              <Text style={styles.relatedTitle}>Related</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  {relatedNav.map((r) => (
+                    <Pressable
+                      key={r.id}
+                      style={styles.relatedCard}
+                      onPress={() => r.localId && router.push(`/item/${r.localId}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={r.title ?? "Related item"}
+                    >
+                      <Text style={styles.relatedPlatform}>{r.platform ?? "•"}</Text>
+                      <Text style={styles.relatedTitleText} numberOfLines={2}>
+                        {r.title ?? "Untitled"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          );
+        })()}
+
         <View style={styles.metaCard}>
           <View style={styles.rawHeader}>
             <Text style={styles.rawTitle}>All captured data (alpha)</Text>
@@ -412,6 +571,62 @@ export default function ItemDetailScreen() {
             <Text style={styles.snackbarText}>{notice}</Text>
           </View>
         ) : null}
+
+        <Modal
+          visible={catPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setCatPicker(false)}
+        >
+          <Pressable style={styles.sheetBackdrop} onPress={() => setCatPicker(false)}>
+            <Pressable style={styles.sheet} onPress={() => {}}>
+              <Text style={styles.sheetTitle}>Choose category</Text>
+              <ScrollView style={styles.sheetList}>
+                {cats.map((cat) => (
+                  <Pressable
+                    key={cat.id}
+                    style={[
+                      styles.sheetRow,
+                      item.categoryId === cat.id && styles.sheetRowActive,
+                    ]}
+                    onPress={() => void applyCategory(cat.id, cat.name)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.sheetRowName} numberOfLines={1}>
+                      {cat.name}
+                    </Text>
+                    <Text style={styles.sheetRowCount}>{cat.count}</Text>
+                  </Pressable>
+                ))}
+                <Pressable
+                  style={styles.sheetRow}
+                  onPress={() => void applyCategory(null, null)}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.sheetRowName, { color: c.dim }]}>Uncategorized</Text>
+                </Pressable>
+              </ScrollView>
+              <View style={styles.sheetNewRow}>
+                <TextInput
+                  style={styles.sheetInput}
+                  value={newCat}
+                  onChangeText={setNewCat}
+                  placeholder="New category…"
+                  placeholderTextColor={c.dim}
+                  autoCapitalize="words"
+                  onSubmitEditing={() => void createAndApply()}
+                />
+                <Pressable
+                  style={styles.sheetCreateBtn}
+                  onPress={() => void createAndApply()}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.sheetCreateText}>{catBusy ? "…" : "Add"}</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -511,6 +726,72 @@ function createStyles(c: ThemeColors) {
     categoryChip: { backgroundColor: c.accentSoft },
     categoryChipText: { color: c.accent },
     description: { fontSize: 15, color: c.dim, lineHeight: 22 },
+    summaryCard: {
+      backgroundColor: c.accentSoft,
+      borderRadius: 16,
+      padding: 14,
+      gap: 4,
+    },
+    summaryLabel: { fontSize: 11.5, fontWeight: "800", color: c.accent, textTransform: "uppercase" },
+    summaryText: { fontSize: 14.5, color: c.text, lineHeight: 21 },
+    topicChip: { backgroundColor: c.surfaceAlt },
+    topicChipText: { color: c.dim },
+    relatedWrap: { gap: 8 },
+    relatedTitle: { fontSize: 12, fontWeight: "700", color: c.dim, textTransform: "uppercase" },
+    relatedCard: {
+      width: 150,
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 10,
+      gap: 4,
+    },
+    relatedPlatform: { fontSize: 11, color: c.dim, fontWeight: "700" },
+    relatedTitleText: { fontSize: 12.5, color: c.text, fontWeight: "600", lineHeight: 16 },
+    sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+    sheet: {
+      backgroundColor: c.bg,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 24,
+      gap: 10,
+    },
+    sheetTitle: { fontSize: 16, fontWeight: "800", color: c.text },
+    sheetList: { maxHeight: 280 },
+    sheetRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 12,
+      paddingHorizontal: 10,
+      borderRadius: 10,
+      gap: 10,
+    },
+    sheetRowActive: { backgroundColor: c.accentSoft },
+    sheetRowName: { flex: 1, fontSize: 15, color: c.text, fontWeight: "600" },
+    sheetRowCount: { fontSize: 12.5, color: c.dim },
+    sheetNewRow: { flexDirection: "row", gap: 8 },
+    sheetInput: {
+      flex: 1,
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 14,
+      color: c.text,
+    },
+    sheetCreateBtn: {
+      backgroundColor: c.accent,
+      borderRadius: 12,
+      paddingHorizontal: 18,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheetCreateText: { color: c.onAccent, fontWeight: "800", fontSize: 14 },
     levelHint: { fontSize: 12.5, color: c.dim, lineHeight: 17, marginTop: -6 },
     // shown only when the server pipeline marked the item failed
     retryCard: {
