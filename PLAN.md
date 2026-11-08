@@ -372,7 +372,20 @@ Branch `feat/mobile-sync-settings`, 5 commits, merged to `main`. Mobile typechec
 - **Server** — added `DELETE /api/captures/:id` (bearer auth, uuid-validated). Auto-deploy to Vercel confirmed live (401 guard).
 - Store: `VaultItem` gains `serverId`/`syncedAt` (backfilled); `useVault` gains `applyAll`/`reload`; `saveItems` exported for Settings.
 
-**Phase ③ next**: server enrichment waterfall in `after()` + `fetch_cache` (Reddit needs OG-primary from datacenter IPs), cron sweep + Supabase heartbeat, `CRON_SECRET` env var.
+**Phase ③ next**: server enrichment waterfall in `after()` + `fetch_cache` (Reddit needs OG-primary from datacenter IPs), cron sweep + Supabase heartbeat, `CRON_SECRET` env var. ✅ **DONE (2026-11-08, v0.5.x branch `feat/server-enrichment`)**
+
+## Phase ③ — Server enrichment pipeline (2026-11-08, ✅ shipped, live-verified)
+
+Branch `feat/server-enrichment`, 5 commits, merged to `main`, Vercel auto-deployed, verified on production (fresh YouTube link → `full_server` + thumbnail + `ready` in ~14 s).
+
+- **`lib/enrich.ts`** — waterfall per plan: platform fetchers (YouTube oEmbed, GitHub API, fxtwitter→x oEmbed for X, TikTok oEmbed, Reddit `.json` best-effort behind OG) → OG/Twitter meta with browser UA → retry with the sanctioned link-preview UA (`facebookexternalhit`). 6 s/step, one attempt per source, richest result wins — platform fetchers get a +2 score bonus over generic OG (fxtwitter's tweet text + likes beat X's thin og tags). Readability-lite paragraph extraction capped 15 k for Phase ④ embeddings.
+- **`fetch_cache`** — successes 30 days, negative `UPSTREAM_BROKEN` entries 1 day (cron retries daily without hammering).
+- **`after()` on POST /api/captures** — the capture returns in ~100 ms; enrichment fills gaps afterwards. Device-extracted data is never downgraded (`rank()` compare: full_device/full_server > metadata > url_only). `meta` PATCH falls back gracefully until migration 0003 is applied.
+- **`/api/cron/sweep`** (GET|POST, `vercel.json` 05:00 UTC daily) — re-enriches stale pending/failed (never-tried or >24 h since last try), batch 10; heartbeat upsert on `fetch_cache` keeps Supabase from pausing. **Fail-closed**: 401 unless `Authorization: Bearer $CRON_SECRET` (Vercel sends it automatically once the env var exists). Note: nested PostgREST `and=(or=(…),or=(…))` logic trees failed to parse — sweep uses two plain queries merged client-side.
+- **Migration `0003_item_meta.sql`** — `items.meta jsonb` (user pastes into SQL editor; until then platform metadata (stars/likes/channel) is computed but not persisted).
+- Live-verified locally + on prod: YouTube (title/thumb/channel), GitHub API (note: facebook/react renamed → canonical `react/react`, followed correctly), X via fxtwitter ("just setting up my twttr"), blog.google (og + 15 k chars text), Instagram via preview-UA (worked from server), cron auth 401/401/200 + sweep + heartbeat.
+
+**Phase ④ next**: Gemini embeddings + one-call summary/categorization, duplicates, feedback events — needs `GEMINI_API_KEY` in Vercel.
 
 
 
