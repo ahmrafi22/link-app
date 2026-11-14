@@ -110,6 +110,76 @@ export async function aiJson(
   }
 }
 
+/** Vision: describe what is visually inside an image (base64 inline). */
+export async function aiVision(
+  base64: string,
+  mimeType: string,
+  prompt: string
+): Promise<string | null> {
+  try {
+    if (GEMINI_KEY) {
+      for (const model of [GEMINI_LLM, ...GEMINI_LLM_FALLBACKS]) {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    { inline_data: { mime_type: mimeType, data: base64 } },
+                    { text: prompt },
+                  ],
+                },
+              ],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+            }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          }
+        );
+        if (res.status === 404 || res.status === 429) continue; // model unavailable → next
+        if (!res.ok) return null;
+        const body = await res.json().catch(() => null);
+        const parts = body?.candidates?.[0]?.content?.parts;
+        const text = Array.isArray(parts)
+          ? parts.map((p: { text?: string }) => p?.text ?? "").join("")
+          : "";
+        return text.trim() ? text.trim() : null;
+      }
+      return null;
+    }
+
+    if (OPENAI_KEY) {
+      const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: OPENAI_MODEL,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+                { type: "text", text: prompt },
+              ],
+            },
+          ],
+          max_tokens: 400,
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) return null;
+      const body = await res.json().catch(() => null);
+      const text = body?.choices?.[0]?.message?.content;
+      return typeof text === "string" && text.trim() ? text.trim() : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** 768-dim embedding for the pipeline. Null when the provider can't deliver. */
 export async function aiEmbed(text: string): Promise<number[] | null> {
   const trimmed = text.slice(0, 6000);
