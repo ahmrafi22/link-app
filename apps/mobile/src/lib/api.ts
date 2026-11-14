@@ -116,6 +116,7 @@ export type ApiItem = {
   status: string;
   summary: string | null;
   topics: string[] | null;
+  image_context: string | null;
   seen_count: number;
   created_at: string;
   last_seen_at: string | null;

@@ -41,6 +41,8 @@ export type VaultItem = {
   /** AI summary + topics (Phase ④, synced from the server). */
   summary: string | null;
   topics: string[] | null;
+  /** What the vision pass saw inside the item's thumbnail (Phase ⑥). */
+  imageContext: string | null;
 };
 
 const PLATFORM_MAP: Array<[string[], string]> = [
@@ -224,6 +226,7 @@ export async function loadItems(): Promise<VaultItem[]> {
       categoryName: null,
       summary: null,
       topics: null,
+      imageContext: null,
       ...item,
     })) as VaultItem[];
   } catch {
@@ -292,6 +295,7 @@ export function saveShareInput(
     categoryName: null,
     summary: null,
     topics: null,
+    imageContext: null,
     createdAt: now,
     lastSeenAt: now,
     seenCount: 1,

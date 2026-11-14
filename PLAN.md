@@ -436,3 +436,5 @@ Goal: know what is INSIDE a post's images and videos, not just its metadata. Pri
 **Budget check:** 1 vision call per item + 1 text call per item + 1 embedding per item — Gemini free tier (≈250 RPD-class, per-model) covers personal volume; ML Kit unlimited; timedtext keyless; Supabase stores text only (egress unchanged). Phone does the IP-sensitive fetch; server does the model calls (keys never on device).
 
 **Risks / honesty:** login-walled platforms (IG/FB reels) still expose only thumbnail + caption — the thumbnail vision pass partially fills that gap (scene + visible text, e.g. usernames/burned-in captions). Gemini's YouTube feature covers public videos only. Verify before building: exact free-tier video-minutes cap, flash-lite image support, timedtext stability from residential IPs.
+
+**Phase ⑥ amendment (2026-11-14, user decision): transcripts PARKED, thumbnail-vision ONLY.** No transcript fetching. Scope = vision pass on thumbnails feeding proper categorization: enrich → vision (thumbnail bytes → Gemini → `image_context`) → AI categorization (sees image_context). Video transcripts + image share target parked for later.

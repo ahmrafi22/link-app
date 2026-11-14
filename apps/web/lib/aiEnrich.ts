@@ -1,4 +1,4 @@
-import { aiConfigured, aiEmbed, aiJson } from "./ai";
+import { aiConfigured, aiEmbed, aiJson, aiVision } from "./ai";
 import { cap } from "./normalize";
 import { sb } from "./supabase";
 
@@ -17,6 +17,54 @@ const MIN_MATCH = 0.7;
 const MIN_NEW = 0.8;
 const DUP_SIMILARITY = 0.96;
 const TOPICS_MAX = 6;
+const VISION_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Phase ⑥ — vision pass: look INSIDE the item's thumbnail (og:image) and
+ * store what it shows (scene + visible text) as image_context. Runs BEFORE
+ * aiEnrichItem so the category decision sees the picture, not just metadata.
+ * Bytes pass through to Gemini and are never stored.
+ */
+export async function visionPassItem(id: string): Promise<{ done: boolean }> {
+  try {
+    if (!aiConfigured()) return { done: false };
+    const item = await loadItem(id);
+    if (!item?.thumbnail_url || item.image_context) return { done: false };
+
+    const imgRes = await fetch(item.thumbnail_url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!imgRes.ok) return { done: false };
+    const mimeType = (imgRes.headers.get("content-type") ?? "").split(";")[0];
+    if (!mimeType.startsWith("image/")) return { done: false };
+    const buf = await imgRes.arrayBuffer();
+    if (buf.byteLength === 0 || buf.byteLength > VISION_MAX_BYTES) return { done: false };
+
+    const description = await aiVision(
+      Buffer.from(buf).toString("base64"),
+      mimeType,
+      "Describe what is visually in this image in 2-3 plain sentences. Transcribe any visible text verbatim (usernames, captions, headlines, watermarks). Output plain text only — no markdown, no preamble."
+    );
+    if (!description) return { done: false };
+
+    const patch: Record<string, unknown> = { image_context: cap(description, 800) };
+    const wrote = await sb(`items?id=eq.${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    // image_context needs migration 0004 — enrich anyway, skip the column
+    if (!wrote.ok && patch.image_context) {
+      delete patch.image_context;
+      if (Object.keys(patch).length > 0) {
+        await sb(`items?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      }
+    }
+    return { done: true };
+  } catch {
+    return { done: false };
+  }
+}
 
 type Item = Record<string, any>;
 
@@ -103,6 +151,7 @@ export async function aiEnrichItem(
       item.description,
       item.platform ? `platform: ${item.platform}` : null,
       item.raw_text,
+      item.image_context,
       (item.extracted_text ?? "").slice(0, 1500),
     ]
       .filter(Boolean)
@@ -148,24 +197,23 @@ export async function aiEnrichItem(
 
     // 3) RAG context
     const cats = await categoriesWithCounts();
-    const catNameById = new Map(cats.map((c) => [c.id, c.name]));
-    const context = {
-      item: {
+    const context: Record<string, unknown> = {};
+    context.item = {
         platform: item.platform,
         url: item.url,
         title: item.title,
         description: item.description,
         caption: item.raw_text,
+        image_context: item.image_context ?? undefined,
         page_excerpt: (item.extracted_text ?? "").slice(0, 1200),
-      },
-      existing_categories: cats.map((c) => ({
-        name: c.name,
-        description: c.description,
-        item_count: c.count,
-      })),
-      similar_items_in_vault: neighborTitles,
-      recent_owner_corrections: await recentCorrections(),
-    };
+      };
+    context.existing_categories = cats.map((c) => ({
+      name: c.name,
+      description: c.description,
+      item_count: c.count,
+    }));
+    context.similar_items_in_vault = neighborTitles;
+    context.recent_owner_corrections = await recentCorrections();
 
     // 4) one strict-JSON call
     const parsed = await aiJson(

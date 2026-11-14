@@ -1,6 +1,6 @@
 import { after } from "next/server";
 
-import { aiEnrichItem } from "@/lib/aiEnrich";
+import { aiEnrichItem, visionPassItem } from "@/lib/aiEnrich";
 import { checkAuth, unauthorized } from "@/lib/auth";
 import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
@@ -134,6 +134,12 @@ export async function POST(req: Request) {
       await enrichItem(String(created.id));
     } catch {
       // sweep/retry paths recover anything that ends up stale
+    }
+    try {
+      // vision first — the category decision should see the picture
+      await visionPassItem(String(created.id));
+    } catch {
+      // thumbnails that won't download just skip the pass
     }
     try {
       await aiEnrichItem(String(created.id));

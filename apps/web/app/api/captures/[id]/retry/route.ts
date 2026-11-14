@@ -1,4 +1,4 @@
-import { aiEnrichItem } from "@/lib/aiEnrich";
+import { aiEnrichItem, visionPassItem } from "@/lib/aiEnrich";
 import { checkAuth, unauthorized } from "@/lib/auth";
 import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
@@ -36,7 +36,13 @@ export async function POST(
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 
-  // the AI pass rides along on a manual retry (summary/topics/category)
+  // the AI pass rides along on a manual retry (summary/topics/category) —
+  // vision runs first so categorization sees the image
+  try {
+    await visionPassItem(id);
+  } catch {
+    // thumbnail issues just skip the pass
+  }
   try {
     await aiEnrichItem(id, { force: true });
   } catch {
