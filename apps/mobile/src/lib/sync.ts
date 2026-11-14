@@ -120,6 +120,7 @@ function itemFromApiItem(a: ApiItem): VaultItem {
     serverStatus: a.status ?? null,
     summary: a.summary ?? null,
     topics: Array.isArray(a.topics) ? a.topics : null,
+    imageContext: a.image_context ?? null,
     categoryId: a.categories?.id ?? null,
     categoryName: a.categories?.name ?? null,
     createdAt: a.created_at,
@@ -154,6 +155,7 @@ export function mergeServerIntoLocal(local: VaultItem, a: ApiItem): VaultItem {
     categoryName: a.categories?.name ?? local.categoryName,
     summary: a.summary ?? local.summary,
     topics: Array.isArray(a.topics) && a.topics.length > 0 ? a.topics : local.topics,
+    imageContext: a.image_context ?? local.imageContext,
     enrichmentLevel:
       localRank >= serverRank
         ? local.enrichmentLevel

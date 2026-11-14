@@ -430,6 +430,13 @@ export default function ItemDetailScreen() {
           </View>
         ) : null}
 
+        {item.imageContext ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>🖼 In the image</Text>
+            <Text style={styles.summaryText}>{item.imageContext}</Text>
+          </View>
+        ) : null}
+
         {item.topics && item.topics.length > 0 ? (
           <View style={styles.chipRow}>
             {item.topics.map((t) => (
