@@ -412,3 +412,27 @@ Branch `feat/server-enrichment`, 5 commits, merged to `main`, Vercel auto-deploy
 Server: hybrid GET /api/search (match_items RRF; FTS-only fallback without an AI key), GET /api/captures/:id/related (vector neighbors), category management (PATCH rename / DELETE / :id/merge — all record feedback events).
 Phone: AI summary card + topic chips + related strip on item detail; recategorize bottom-sheet (pick existing / create new / clear — writes the feedback event, category_source=manual which AI never overrides); local search now covers summary + topics + category name; "N attempts" honesty label replaces "timeouts". Local search stays instant + offline; the server search endpoint is ready for the web UI later.
 All 5 core phases COMPLETE. Parked: daily cron (future improvements); pending: valid GEMINI_API_KEY for the AI e2e test.
+
+---
+
+## Phase ⑥ (proposed) — Image & Video Content Context, $0/month (2026-11-14)
+
+Goal: know what is INSIDE a post's images and videos, not just its metadata. Principle: never download/store media — let the model see it, store only the derived text.
+
+**Free pathways (verified against plan rules: no yt-dlp, no login-wall scraping, no object storage):**
+- **Gemini vision** — flash models accept image bytes (inline base64) on the free tier; flash-lite included. Use for og:image thumbnails and shared screenshots.
+- **Gemini native YouTube input** — the API accepts YouTube URLs directly (file_data.file_uri = youtube link) and analyzes the actual video content; free tier has a daily video-minutes cap (verify exact number at build time). No download, no key cost.
+- **YouTube timedtext captions** — free, keyless. Caption track list comes from the watch page (ytInitialPlayerResponse). Datacenter IPs get blocked → device-assisted per the hybrid model: the phone fetches the transcript, ships it as client-extracted text.
+- **ML Kit Text Recognition (Android)** — free, unlimited, fully on-device OCR. Screenshots shared into the vault get OCR'd locally; only the TEXT syncs (plan rule: image bytes stay on-device).
+
+**Build order (small commits, branch per step):**
+1. Migration 0004 — `alter table items add column if not exists image_context text;` (video transcripts go into existing extracted_text; media hints into meta).
+2. Server: vision pass in the AI pipeline — after enrichment, if thumbnail_url exists and image_context is null → download thumbnail (≤5 MB cap, https only) → Gemini vision call → store one-paragraph description + any visible text. Same after() + retry wiring as the text AI. Fallback silent on quota errors.
+3. Server: YouTube video analysis — for platform=youtube items, one Gemini call with the YouTube URL (file_data) → "what happens in this video" summary into summary/extracted_text; skip when captions already provided transcript (cheaper).
+4. Phone: timedtext fetcher in extract.ts (CORE — treat like the rest of the extraction waterfall): watch-page fetch → captionTracks → first en track → XML/JSON3 → plain transcript, capped ~15k. Device sends as client_extracted.text on capture; server prefers it. ⚠ verify from residential IP; degrade silently when YouTube blocks or no captions exist.
+5. Phone: image/* share target — extend ReceiverActivity (ACTION_SEND + image/*) to write media files into the inbox dir; drain creates kind="image" items; ML Kit OCR text becomes rawText; compressed image (≤1024 px, ≤800 KB JPEG) uploaded via POST /api/captures/media for the vision pass — bytes pass through the server to Gemini, never stored in the DB.
+6. UI: detail screen shows image_context ("In the image: …") and transcript presence; search/embeddings consume all of it automatically (extracted_text + image_context are already in the embedding text builder).
+
+**Budget check:** 1 vision call per item + 1 text call per item + 1 embedding per item — Gemini free tier (≈250 RPD-class, per-model) covers personal volume; ML Kit unlimited; timedtext keyless; Supabase stores text only (egress unchanged). Phone does the IP-sensitive fetch; server does the model calls (keys never on device).
+
+**Risks / honesty:** login-walled platforms (IG/FB reels) still expose only thumbnail + caption — the thumbnail vision pass partially fills that gap (scene + visible text, e.g. usernames/burned-in captions). Gemini's YouTube feature covers public videos only. Verify before building: exact free-tier video-minutes cap, flash-lite image support, timedtext stability from residential IPs.
