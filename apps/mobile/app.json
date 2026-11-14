@@ -2,7 +2,7 @@
   "expo": {
     "name": "Link Vault",
     "slug": "linkvault",
-    "version": "0.5.5",
+    "version": "0.5.6",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "linkvault",
@@ -40,6 +40,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "api": {
+        "baseUrl": "https://web-two-lake-29.vercel.app"
+      }
     }
   }
 }
