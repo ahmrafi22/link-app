@@ -138,8 +138,9 @@ export async function aiVision(
             signal: AbortSignal.timeout(TIMEOUT_MS),
           }
         );
-        if (res.status === 404 || res.status === 429) continue; // model unavailable → next
-        if (!res.ok) return null;
+        // any model-level error (404 unknown model, 429 quota, 400 = model
+        // likely can't take images) → try the next model in the chain
+        if (!res.ok) continue;
         const body = await res.json().catch(() => null);
         const parts = body?.candidates?.[0]?.content?.parts;
         const text = Array.isArray(parts)
