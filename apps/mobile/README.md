@@ -76,3 +76,7 @@ Data is a single JSON array under AsyncStorage key `linkvault.items.v1`. When th
 ## Retry
 
 Items the **server** failed to fetch show a "Retry server fetch" button on their detail screen (server marks them `failed`). Healthy items show no retry controls.
+
+## Background capture
+
+Shares POST straight to the API from the native share target (APP_SECRET baked in at prebuild from the `APP_SECRET` repo secret) — the app never opens, and nothing runs after the POST completes. Offline shares queue locally and sync on next open; the server dedupes both paths.
