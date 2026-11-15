@@ -169,7 +169,7 @@ class ${ACTIVITY_CLASS} : Activity() {
       conn.connectTimeout = 6000
       conn.readTimeout = 6000
       conn.doOutput = true
-      conn.outputStream.use { it.write(body.toString().toByteArray("UTF-8")) }
+      conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
       val code = conn.responseCode
       code in 200..299
     } catch (e: Exception) {
