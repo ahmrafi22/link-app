@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   AppState,
+  Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -19,7 +21,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createCardStyles, MasonryGrid } from "@/components/cards";
+import { createCardStyles, MasonryGrid, PressableScale } from "@/components/cards";
 import { getApiConfig } from "@/lib/api";
 import { DEMO_URLS, enrichLinks, selectEnrichTargets } from "@/lib/extract";
 import { folderLabel, foldersFromItems, type Folder, type FolderMode } from "@/lib/folders";
@@ -49,12 +51,19 @@ export default function InboxScreen() {
     setNotice({ id: Date.now(), text });
   }, []);
 
-  // auto-hide the snackbar
+  // auto-hide the snackbar (fade + slide on the way out)
+  const snackbarAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    Animated.timing(snackbarAnim, {
+      toValue: notice ? 1 : 0,
+      duration: notice ? 240 : 180,
+      easing: notice ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start();
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 2400);
     return () => clearTimeout(t);
-  }, [notice]);
+  }, [notice, snackbarAnim]);
 
   // Drain the share inbox written by the native silent share target. Shares
   // land in a file while we're backgrounded; import them whenever the app
@@ -383,9 +392,25 @@ export default function InboxScreen() {
         </View>
 
         {notice && (
-          <View style={styles.snackbar} pointerEvents="none">
+          <Animated.View
+            style={[
+              styles.snackbar,
+              {
+                opacity: snackbarAnim,
+                transform: [
+                  {
+                    translateY: snackbarAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+            pointerEvents="none"
+          >
             <Text style={styles.snackbarText}>{notice.text}</Text>
-          </View>
+          </Animated.View>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -447,10 +472,9 @@ function FolderCard({
     top.length === 1 ? [placements[2]] : top.length === 2 ? [placements[0], placements[1]] : placements;
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.folderCard, pressed && { opacity: 0.85 }]}
+    <PressableScale
       onPress={onPress}
-      accessibilityRole="button"
+      pressedScale={0.94}
       accessibilityLabel={`${folderLabel(folder.key)} folder, ${folder.items.length} items`}
     >
       <View style={styles.folderVisual}>
@@ -504,10 +528,12 @@ function FolderCard({
         </View>
       </View>
       <Text style={styles.folderName}>{folderLabel(folder.key)}</Text>
-      <Text style={styles.folderCount}>
-        {folder.items.length} {folder.items.length === 1 ? noun : nounPlural}
-      </Text>
-    </Pressable>
+      <View style={styles.folderCountPill}>
+        <Text style={styles.folderCountText}>
+          {folder.items.length} {folder.items.length === 1 ? noun : nounPlural}
+        </Text>
+      </View>
+    </PressableScale>
   );
 }
 
@@ -623,7 +649,16 @@ function createStyles(c: ThemeColors) {
       backgroundColor: c.glassHighlight,
     },
     folderName: { fontSize: 15.5, fontWeight: "700", color: c.text, textAlign: "center" },
-    folderCount: { fontSize: 12.5, color: c.dim, marginTop: 2, textAlign: "center" },
+    folderCountPill: {
+      marginTop: 6,
+      backgroundColor: c.glassFill,
+      borderWidth: 1,
+      borderColor: c.glassBorder,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 3,
+    },
+    folderCountText: { fontSize: 11.5, fontWeight: "700", color: c.dim, textAlign: "center" },
     // capture bar
     captureBar: {
       flexDirection: "row",
