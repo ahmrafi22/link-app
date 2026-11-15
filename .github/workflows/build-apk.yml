@@ -102,8 +102,12 @@ jobs:
 
       - name: Publish to Releases
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: build-${{ github.run_number }}
-          files: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "APK missing at $APK"; exit 1; }
+          gh release create "build-${{ github.run_number }}" \
+            "$APK#linkvault-apk-v0.5.6.apk" \
+            --title "build-${{ github.run_number }}" \
+            --notes "Link Vault Android APK — install over any previous build."
