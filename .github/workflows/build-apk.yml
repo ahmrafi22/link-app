@@ -91,6 +91,9 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload artifact
+        # convenience download only — the Release below is the real deliverable;
+        # this service flakes occasionally and must not fail the build
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: linkvault-apk-${{ github.run_number }}
