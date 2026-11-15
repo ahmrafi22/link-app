@@ -105,7 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          APK="$GITHUB_WORKSPACE/apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK" || { echo "APK missing at $APK"; exit 1; }
           gh release create "build-${{ github.run_number }}" \
             "$APK#linkvault-apk-v0.5.6.apk" \
