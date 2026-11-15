@@ -14,6 +14,6 @@ android/
 *.log
 
 # local ZCode agent tooling (not part of the app)
-plugins/
+/plugins/
 .zcodeignore
 .zcode-write-probe

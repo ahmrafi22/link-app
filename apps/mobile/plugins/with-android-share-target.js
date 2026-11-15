@@ -203,7 +203,9 @@ function withShareTarget(config) {
       const pkg = cfg.android?.package;
       if (!pkg) throw new Error("with-android-share-target: android.package is not set");
       const apiBaseUrl = cfg.extra?.api?.baseUrl ?? "";
-      const appSecret = process.env.APP_SECRET ?? "";
+      // trim: GitHub secrets often carry a trailing newline that would break
+      // the Kotlin string literal at compile time
+      const appSecret = String(process.env.APP_SECRET ?? "").trim().replace(/\r?\n/g, "");
       if (!appSecret) {
         console.log(
           "with-android-share-target: no APP_SECRET env at prebuild — receiver will queue offline only"
