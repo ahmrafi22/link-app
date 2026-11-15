@@ -107,7 +107,16 @@ jobs:
         run: |
           APK="$GITHUB_WORKSPACE/apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK" || { echo "APK missing at $APK"; exit 1; }
+          set -o pipefail
           gh release create "build-${{ github.run_number }}" \
             "$APK#linkvault-apk-v0.5.6.apk" \
             --title "build-${{ github.run_number }}" \
-            --notes "Link Vault Android APK — install over any previous build."
+            --notes "Link Vault Android APK — install over any previous build." 2>&1 | tee "$GITHUB_WORKSPACE/publish.log"
+
+      - name: Upload publish log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-log-${{ github.run_number }}
+          path: publish.log
+          if-no-files-found: ignore
