@@ -1,9 +1,95 @@
 import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Easing,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type AccessibilityRole,
+} from "react-native";
 
 import { domainOf, itemDisplayTitle, type VaultItem } from "@/lib/store";
 import { platformTile, type ThemeColors } from "@/lib/theme";
+
+/**
+ * Springy press feedback — the app-wide "everything tappable feels alive"
+ * wrapper. Press scales down with a soft spring, releases with a bounce.
+ */
+export function PressableScale({
+  onPress,
+  onLongPress,
+  style,
+  children,
+  accessibilityRole,
+  accessibilityLabel,
+  pressedScale = 0.95,
+}: {
+  onPress?: () => void;
+  onLongPress?: () => void;
+  style?: Record<string, unknown>;
+  children: React.ReactNode;
+  accessibilityRole?: AccessibilityRole;
+  accessibilityLabel?: string;
+  pressedScale?: number;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const to = (value: number) =>
+    Animated.spring(scale, {
+      toValue: value,
+      speed: 42,
+      bounciness: 7,
+      useNativeDriver: true,
+    }).start();
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      onPressIn={() => to(pressedScale)}
+      onPressOut={() => to(1)}
+      accessibilityRole={accessibilityRole}
+      accessibilityLabel={accessibilityLabel}
+    >
+      <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
+    </Pressable>
+  );
+}
+
+/** Staggered fade+scale entrance — content lands on screen with a soft curve. */
+export function FadeUp({
+  index = 0,
+  children,
+}: {
+  index?: number;
+  children: React.ReactNode;
+}) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(v, {
+      toValue: 1,
+      duration: 340,
+      delay: Math.min(index * 24, 240),
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [v, index]);
+  return (
+    <Animated.View
+      style={{
+        opacity: v,
+        transform: [
+          {
+            scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] }),
+          },
+        ],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
 
 /** Relative-time label shared by every item surface. */
 export function formatWhen(iso: string): string {

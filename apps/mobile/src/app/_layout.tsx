@@ -32,7 +32,15 @@ export default function RootLayout() {
       }}
     >
       <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg } }} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: c.bg },
+          // smooth curved screen transitions instead of hard cuts
+          animation: "fade_from_bottom",
+          animationDuration: 260,
+        }}
+      />
     </ThemeProvider>
   );
 }
