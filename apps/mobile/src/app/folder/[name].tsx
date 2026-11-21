@@ -1,5 +1,14 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  FadeInDown,
+  useSharedValue,
+  useAnimatedStyle,
+  useAnimatedReaction,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import * as Haptics from "expo-haptics";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
@@ -13,7 +22,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createCardStyles, FadeUp, formatWhen, MasonryGrid, PressableScale, type CardStyles } from "@/components/cards";
+import { createCardStyles, formatWhen, MasonryGrid, PressableScale, type CardStyles } from "@/components/cards";
 import { folderLabel, itemsInFolder } from "@/lib/folders";
 import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
@@ -31,7 +40,19 @@ const COLS = 5;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 
+// entrance stagger: only the first items animate (content the user asked for),
+// and each card plays at most once per session — a windowed re-mount must
+// never re-fire the entrance or the board flickers while panning
+const ENTRANCE_ITEMS = 10;
+const ENTRANCE_PLAYED = new Set<string>();
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+
 function clampZoom(z: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 20) / 20));
+}
+
+function clampZoomWorklet(z: number): number {
+  "worklet";
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 20) / 20));
 }
 
@@ -137,6 +158,13 @@ const CanvasCard = memo(function CanvasCard({
   const jx = h % 56 - 28;
   const jy = ((h >> 3) % 56) - 28;
   const rot = ((h >> 6) % 22) - 11;
+  // builders live in memo, never inline JSX (rebuilt builders re-fire the
+  // animation on every render); an already-seen card mounts with no entrance
+  const entering = useMemo(() => {
+    if (index >= ENTRANCE_ITEMS || ENTRANCE_PLAYED.has(item.id)) return undefined;
+    ENTRANCE_PLAYED.add(item.id);
+    return FadeInDown.duration(250).delay(index * 40).easing(EASE_OUT);
+  }, [item.id, index]);
   return (
     <View
       style={[
@@ -148,16 +176,15 @@ const CanvasCard = memo(function CanvasCard({
         },
       ]}
     >
-      <FadeUp index={index}>
+      <Animated.View entering={entering}>
         <PressableScale
           onPress={() => onOpen(item)}
-          pressedScale={0.92}
           accessibilityRole="button"
           accessibilityLabel={itemDisplayTitle(item)}
         >
           <CanvasItemCard item={item} styles={styles} />
         </PressableScale>
-      </FadeUp>
+      </Animated.View>
     </View>
   );
 });
