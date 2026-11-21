@@ -479,3 +479,11 @@ Supersedes the "IG/FB are login-walled → caption only" assumption above and th
 - `cards.tsx`: thumbnail aspect ratios measured once per session (`ratioCache` — `Image.getSize` no longer re-decodes on every mount); `CardTile` + `MasonryGrid` memoized (store `updateMany`/`toggleFavorite` keep untouched item references stable, so grid re-renders are skipped unless `items` changes); `FadeUp` animates only the first 10 items — past the fold cards render instantly (no hundreds of Animated.Values on mount).
 - Canvas: **row-window virtualization** — the deterministic grid means only viewport rows (± margin) mount; onScroll + zoom changes recompute the window, state updates only when the window actually changes. Memory and pinch/pan re-render cost are now flat regardless of vault size. `CanvasItemCard` memoized.
 - Home: search filtering runs on `useDeferredValue(query)` — typing stays snappy on large vaults.
+
+**Motion doctrine pass (2026-11-21, v0.5.11, branch `feat/motion`) — per github.com/emilkowalski/skills (`animate-expo`):**
+- Reanimated 4 + worklets + expo-haptics installed (expo install); `GestureHandlerRootView` at the router root.
+- Press feedback: 120ms CSS-transition scale to 0.97 (timing, not spring — bounce belongs to momentum gestures); `pressRetentionOffset` so drifting fingers don't cancel.
+- Canvas entrances: `FadeInDown` builders (module-scope constants, per-card `useMemo`), stagger 40ms capped at the first 10 cards, **once per item per session** — windowed re-mounts never re-fire (the virtualized-list flicker rule, adapted to the canvas's custom windowing).
+- **Pinch zoom on the UI thread**: shared value + `useAnimatedStyle` drive the board transform every frame; React state receives only the same quantized steps as before via `useAnimatedReaction` + `scheduleOnRN` (never setState per frame). Double-tap reset adds a Light haptic in the same frame as the recenter.
+- Snackbar: toast recipe — `FadeInDown` 300ms enter, `FadeOutDown` 240ms exit (exits the way it entered, ~20% faster), safe-area aware.
+- Feel-check list (release build, slowest Android): interrupt the pinch mid-gesture, flick-scroll the canvas, re-enter a folder after panning away (no entrance re-fire), snackbar during sync.
