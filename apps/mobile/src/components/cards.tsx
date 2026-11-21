@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -57,7 +57,11 @@ export function PressableScale({
   );
 }
 
-/** Staggered fade+scale entrance — content lands on screen with a soft curve. */
+/** Staggered fade+scale entrance — content lands on screen with a soft curve.
+ * Only the first FADING_ITEMS items animate; past the fold everything renders
+ * instantly (hundreds of Animated.Values make long lists janky on mount). */
+const FADING_ITEMS = 10;
+
 export function FadeUp({
   index = 0,
   children,
@@ -65,16 +69,18 @@ export function FadeUp({
   index?: number;
   children: React.ReactNode;
 }) {
-  const v = useRef(new Animated.Value(0)).current;
+  const animate = index < FADING_ITEMS;
+  const v = useRef(new Animated.Value(animate ? 0 : 1)).current;
   useEffect(() => {
+    if (!animate) return;
     Animated.timing(v, {
       toValue: 1,
       duration: 340,
-      delay: Math.min(index * 24, 240),
+      delay: index * 24,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [v, index]);
+  }, [v, animate, index]);
   return (
     <Animated.View
       style={{
@@ -179,22 +185,39 @@ export function createCardStyles(c: ThemeColors) {
 
 export type CardStyles = ReturnType<typeof createCardStyles>;
 
+/** Thumbnail aspect ratios measured once per session (Image.getSize decodes
+ * the image header — doing it on every card mount is wasted work). */
+const ratioCache = new Map<string, number>();
+
 /** Tile with the captured thumbnail at its natural shape; colored glyph otherwise. */
-export function CardTile({ item, styles }: { item: VaultItem; styles: CardStyles }) {
+export const CardTile = memo(function CardTile({
+  item,
+  styles,
+}: {
+  item: VaultItem;
+  styles: CardStyles;
+}) {
   const [broken, setBroken] = useState(false);
-  const [ratio, setRatio] = useState<number | null>(null);
+  const [ratio, setRatio] = useState<number | null>(() => {
+    const cached = item.thumbnailUrl ? ratioCache.get(item.thumbnailUrl) : undefined;
+    return cached ?? null;
+  });
   const tile = platformTile(item.platform, item.kind);
   const showImage = !!item.thumbnailUrl && !broken;
 
   useEffect(() => {
     setBroken(false);
-    setRatio(null);
-    if (!item.thumbnailUrl) return;
+    const cached = item.thumbnailUrl ? ratioCache.get(item.thumbnailUrl) : undefined;
+    setRatio(cached ?? null);
+    if (!item.thumbnailUrl || cached != null) return;
     let alive = true;
     Image.getSize(
       item.thumbnailUrl,
       (w, h) => {
-        if (alive && w > 0 && h > 0) setRatio(w / h);
+        if (alive && w > 0 && h > 0) {
+          ratioCache.set(item.thumbnailUrl!, w / h);
+          setRatio(w / h);
+        }
       },
       () => {}
     );
@@ -231,7 +254,7 @@ export function CardTile({ item, styles }: { item: VaultItem; styles: CardStyles
       <TileBadges item={item} styles={styles} />
     </View>
   );
-}
+});
 
 function TileBadges({ item, styles }: { item: VaultItem; styles: CardStyles }) {
   return (
@@ -298,8 +321,10 @@ export function ItemCard({
   );
 }
 
-/** Two-column masonry of item cards. */
-export function MasonryGrid({
+/** Two-column masonry of item cards. Memoized: parent re-renders (snackbar,
+ * sync ticks, favorite toggles) skip the whole grid unless `items` itself
+ * changes — item references are stable in the store's updateMany paths. */
+export const MasonryGrid = memo(function MasonryGrid({
   items,
   styles,
   onLongPress,
@@ -327,4 +352,4 @@ export function MasonryGrid({
       ))}
     </View>
   );
-}
+});
