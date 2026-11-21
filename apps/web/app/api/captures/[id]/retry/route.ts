@@ -6,8 +6,9 @@ import { sb, sbErrorMessage } from "@/lib/supabase";
 import { transcriptPassItem } from "@/lib/transcripts";
 
 export const dynamic = "force-dynamic";
-// a single waterfall is bounded (~3 fetch steps × 6 s) but leave headroom
-export const maxDuration = 60;
+// text/metadata waterfall is bounded (~3 fetch steps × 6 s); the IG audio
+// path (mp4 download + ffmpeg + ASR) can run 2–3 minutes on a manual retry
+export const maxDuration = 300;
 
 /**
  * POST /api/captures/:id/retry — forced re-enrichment of one item (the

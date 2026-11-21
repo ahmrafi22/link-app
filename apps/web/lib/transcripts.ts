@@ -23,7 +23,7 @@ const UA_BROWSER =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 // what a real navigation request sends — Facebook fingerprints these
-const BROWSER_HEADERS: Record<string, string> = {
+export const BROWSER_HEADERS: Record<string, string> = {
   "User-Agent": UA_BROWSER,
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
@@ -190,6 +190,12 @@ export async function transcriptPassItem(id: string): Promise<{ done: boolean }>
     let text: string | null = null;
     if (platform === "tiktok") text = await tiktokTranscript(item.url);
     else if (platform === "facebook") text = await facebookTranscript(item.url);
+    else if (platform === "instagram") {
+      // audio path (ffmpeg + Gemini) — lazy import keeps the binary out of
+      // every route's bundle except where the pass actually runs
+      const { instagramAudioTranscript } = await import("./instaAudio");
+      text = await instagramAudioTranscript(item.url);
+    }
     if (!text) return { done: false };
 
     const wrote = await sb(`items?id=eq.${id}`, {
