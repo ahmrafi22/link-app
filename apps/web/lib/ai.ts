@@ -234,3 +234,52 @@ export async function aiEmbed(text: string): Promise<number[] | null> {
     return null;
   }
 }
+
+/**
+ * Phase ⑦ — audio transcription (Instagram reels): audio bytes in, plain
+ * text out. The audio is used strictly for transcription — the LLM pipeline
+ * itself only ever consumes the resulting text (plan rule). Audio is bigger
+ * than thumbnails, so this gets its own 120s budget instead of TIMEOUT_MS.
+ */
+export async function aiAudio(
+  base64: string,
+  mimeType: string,
+  prompt: string
+): Promise<string | null> {
+  try {
+    if (!GEMINI_KEY) return null;
+    for (const model of [GEMINI_LLM, ...GEMINI_LLM_FALLBACKS]) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: { "x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { inline_data: { mime_type: mimeType, data: base64 } },
+                  { text: prompt },
+                ],
+              },
+            ],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 8000 },
+          }),
+          signal: AbortSignal.timeout(120_000),
+        }
+      );
+      // same chain rule as vision: any model-level error (404/429/400-can't-
+      // take-audio) → try the next model
+      if (!res.ok) continue;
+      const body = await res.json().catch(() => null);
+      const parts = body?.candidates?.[0]?.content?.parts;
+      const text = Array.isArray(parts)
+        ? parts.map((p: { text?: string }) => p?.text ?? "").join("")
+        : "";
+      return text.trim() ? text.trim() : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

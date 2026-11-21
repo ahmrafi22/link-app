@@ -6,6 +6,7 @@ import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
 import { cap, detectPlatform, normalizeUrl, urlHash } from "@/lib/normalize";
 import { sb, sbErrorMessage } from "@/lib/supabase";
+import { transcriptPassItem } from "@/lib/transcripts";
 
 export const dynamic = "force-dynamic";
 // enrichment via after() lands in Phase ③; the insert itself is fast and
@@ -134,6 +135,12 @@ export async function POST(req: Request) {
       await enrichItem(String(created.id));
     } catch {
       // sweep/retry paths recover anything that ends up stale
+    }
+    try {
+      // spoken content before AI — the category decision should hear it too
+      await transcriptPassItem(String(created.id));
+    } catch {
+      // platforms without captions / WAF'd fetches just skip the pass
     }
     try {
       // vision first — the category decision should see the picture

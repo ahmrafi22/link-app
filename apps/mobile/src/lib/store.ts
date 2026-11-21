@@ -43,6 +43,8 @@ export type VaultItem = {
   topics: string[] | null;
   /** What the vision pass saw inside the item's thumbnail (Phase ⑥). */
   imageContext: string | null;
+  /** Spoken content (Phase ⑦ — platform captions / IG audio ASR, synced). */
+  transcript: string | null;
 };
 
 const PLATFORM_MAP: Array<[string[], string]> = [
@@ -227,6 +229,7 @@ export async function loadItems(): Promise<VaultItem[]> {
       summary: null,
       topics: null,
       imageContext: null,
+      transcript: null,
       ...item,
     })) as VaultItem[];
   } catch {
@@ -296,6 +299,7 @@ export function saveShareInput(
     summary: null,
     topics: null,
     imageContext: null,
+    transcript: null,
     createdAt: now,
     lastSeenAt: now,
     seenCount: 1,
