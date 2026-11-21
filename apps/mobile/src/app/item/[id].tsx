@@ -87,6 +87,7 @@ export default function ItemDetailScreen() {
   const item = items.find((i) => i.id === id);
 
   const [notice, setNotice] = useState<string | null>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [heroRatio, setHeroRatio] = useState<number | null>(null);
@@ -437,6 +438,26 @@ export default function ItemDetailScreen() {
           </View>
         ) : null}
 
+        {item.transcript ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>🔊 Spoken content</Text>
+            <Text style={styles.summaryText} numberOfLines={transcriptOpen ? undefined : 8}>
+              {item.transcript}
+            </Text>
+            {item.transcript.length > 600 ? (
+              <Pressable
+                onPress={() => setTranscriptOpen((v) => !v)}
+                accessibilityRole="button"
+                hitSlop={8}
+              >
+                <Text style={styles.transcriptToggle}>
+                  {transcriptOpen ? "Show less" : "Show all"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
         {item.topics && item.topics.length > 0 ? (
           <View style={styles.chipRow}>
             {item.topics.map((t) => (
@@ -741,6 +762,7 @@ function createStyles(c: ThemeColors) {
     },
     summaryLabel: { fontSize: 11.5, fontWeight: "800", color: c.accent, textTransform: "uppercase" },
     summaryText: { fontSize: 14.5, color: c.text, lineHeight: 21 },
+    transcriptToggle: { fontSize: 12.5, fontWeight: "700", color: c.accent, marginTop: 4 },
     topicChip: { backgroundColor: c.surfaceAlt },
     topicChipText: { color: c.dim },
     relatedWrap: { gap: 8 },

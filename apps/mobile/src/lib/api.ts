@@ -117,6 +117,8 @@ export type ApiItem = {
   summary: string | null;
   topics: string[] | null;
   image_context: string | null;
+  /** spoken content (Phase ⑦ — TikTok/FB captions, IG audio ASR) */
+  transcript: string | null;
   seen_count: number;
   created_at: string;
   last_seen_at: string | null;
