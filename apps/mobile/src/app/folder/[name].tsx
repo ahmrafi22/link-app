@@ -56,6 +56,10 @@ export default function FolderScreen() {
 
   const noun = key === "note" ? "notes" : "items";
 
+  const openItem = useCallback((item: VaultItem) => {
+    router.push(`/item/${item.id}`);
+  }, []);
+
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <View style={styles.topBar}>
@@ -95,11 +99,7 @@ export default function FolderScreen() {
           </Text>
         </View>
       ) : view === "canvas" ? (
-        <CanvasBoard
-          items={folderItems}
-          styles={styles}
-          onOpen={(item) => router.push(`/item/${item.id}`)}
-        />
+        <CanvasBoard items={folderItems} styles={styles} onOpen={openItem} />
       ) : (
         <ScrollView
           style={styles.flex}
@@ -114,6 +114,53 @@ export default function FolderScreen() {
 }
 
 type FolderStyles = CardStyles & ReturnType<typeof createStyles>;
+
+/**
+ * One positioned canvas card, fully memoized: during pinch/pan re-renders the
+ * entire card subtree skips unless this item's data actually changed (props
+ * are stable — item reference, memoized styles, useCallback'd onOpen).
+ */
+const CanvasCard = memo(function CanvasCard({
+  item,
+  styles,
+  onOpen,
+  index,
+}: {
+  item: VaultItem;
+  styles: FolderStyles;
+  onOpen: (item: VaultItem) => void;
+  index: number;
+}) {
+  const col = index % COLS;
+  const row = Math.floor(index / COLS);
+  const h = hashId(item.id);
+  const jx = h % 56 - 28;
+  const jy = ((h >> 3) % 56) - 28;
+  const rot = ((h >> 6) % 22) - 11;
+  return (
+    <View
+      style={[
+        styles.canvasItem,
+        {
+          left: 40 + col * CELL_W + jx,
+          top: 40 + row * CELL_H + jy,
+          transform: [{ rotate: `${rot}deg` }],
+        },
+      ]}
+    >
+      <FadeUp index={index}>
+        <PressableScale
+          onPress={() => onOpen(item)}
+          pressedScale={0.92}
+          accessibilityRole="button"
+          accessibilityLabel={itemDisplayTitle(item)}
+        >
+          <CanvasItemCard item={item} styles={styles} />
+        </PressableScale>
+      </FadeUp>
+    </View>
+  );
+});
 
 /**
  * Pannable scattered board: a vertical ScrollView wrapping a horizontal one.
@@ -236,6 +283,18 @@ function CanvasBoard({
   const contentW = boardW * zoom;
   const contentH = boardH * zoom;
 
+  // indices of the mounted window only — the map below stays O(visible)
+  const visibleIdx = useMemo(() => {
+    const out: number[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const row = Math.floor(i / COLS);
+      if (row < rowWindow[0]) continue;
+      if (row > rowWindow[1]) break;
+      out.push(i);
+    }
+    return out;
+  }, [items, rowWindow]);
+
   // center on the content once the ScrollViews have laid out (both signals,
   // because scrollTo before layout is a silent no-op)
   const onInnerContentSize = useCallback(() => {
@@ -286,37 +345,16 @@ function CanvasBoard({
                 transformOrigin: "top left",
               }}
             >
-              {items.map((item, i) => {
-                const row = Math.floor(i / COLS);
-                if (row < rowWindow[0] || row > rowWindow[1]) return null;
-                const col = i % COLS;
-                const h = hashId(item.id);
-                const jx = ((h % 56) - 28);
-                const jy = (((h >> 3) % 56) - 28);
-                const rot = ((h >> 6) % 22) - 11;
+              {visibleIdx.map((i) => {
+                const item = items[i];
                 return (
-                  <View
+                  <CanvasCard
                     key={item.id}
-                    style={[
-                      styles.canvasItem,
-                      {
-                        left: 40 + col * CELL_W + jx,
-                        top: 40 + row * CELL_H + jy,
-                        transform: [{ rotate: `${rot}deg` }],
-                      },
-                    ]}
-                  >
-                    <FadeUp index={i}>
-                      <PressableScale
-                        onPress={() => onOpen(item)}
-                        pressedScale={0.92}
-                        accessibilityRole="button"
-                        accessibilityLabel={itemDisplayTitle(item)}
-                      >
-                        <CanvasItemCard item={item} styles={styles} />
-                      </PressableScale>
-                    </FadeUp>
-                  </View>
+                    item={item}
+                    styles={styles}
+                    onOpen={onOpen}
+                    index={i}
+                  />
                 );
               })}
             </View>

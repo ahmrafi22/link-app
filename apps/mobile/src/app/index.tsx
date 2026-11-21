@@ -30,6 +30,30 @@ import { noteItemDeleted, syncVault } from "@/lib/sync";
 import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
 
+/** Lowercased search fields per item, cached on the item's own object
+ * reference — rebuilt only when the item object is replaced by the store. */
+const haystackCache = new WeakMap<VaultItem, string[]>();
+function searchableFields(item: VaultItem): string[] {
+  let fields = haystackCache.get(item);
+  if (!fields) {
+    fields = [
+      item.title,
+      item.url,
+      item.rawText,
+      item.description,
+      item.siteName,
+      item.platform,
+      item.summary,
+      item.categoryName,
+      ...(item.topics ?? []),
+    ]
+      .filter(Boolean)
+      .map((v) => (v as string).toLowerCase());
+    haystackCache.set(item, fields);
+  }
+  return fields;
+}
+
 export default function InboxScreen() {
   const c = useTheme();
   const styles = useMemo(
@@ -165,25 +189,14 @@ export default function InboxScreen() {
     [items, folderMode]
   );
 
-  // while searching, the folder grid is replaced by matching items
+  // while searching, the folder grid is replaced by matching items.
+  // Per-item search fields are precomputed (cached per item reference in a
+  // WeakMap) so each keystroke is a plain substring scan — same fields,
+  // same matching semantics as before, without rebuilding strings per press.
   const searchResults = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
     if (!q) return null;
-    return items.filter((i) =>
-      [
-        i.title,
-        i.url,
-        i.rawText,
-        i.description,
-        i.siteName,
-        i.platform,
-        i.summary,
-        i.categoryName,
-        ...(i.topics ?? []),
-      ]
-        .filter(Boolean)
-        .some((v) => (v as string).toLowerCase().includes(q))
-    );
+    return items.filter((i) => searchableFields(i).some((v) => v.includes(q)));
   }, [items, deferredSearch]);
 
   const openLink = useCallback(async (url: string) => {
