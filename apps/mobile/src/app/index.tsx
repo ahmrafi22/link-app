@@ -2,7 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
@@ -41,6 +41,9 @@ export default function InboxScreen() {
     useVault();
 
   const [search, setSearch] = useState("");
+  // typing stays snappy: the filter runs on a deferred copy of the query so
+  // every keystroke doesn't re-filter + re-render the whole grid synchronously
+  const deferredSearch = useDeferredValue(search);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
   const [fetchingCount, setFetchingCount] = useState(0);
@@ -164,7 +167,7 @@ export default function InboxScreen() {
 
   // while searching, the folder grid is replaced by matching items
   const searchResults = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     if (!q) return null;
     return items.filter((i) =>
       [
@@ -181,7 +184,7 @@ export default function InboxScreen() {
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q))
     );
-  }, [items, search]);
+  }, [items, deferredSearch]);
 
   const openLink = useCallback(async (url: string) => {
     try {
