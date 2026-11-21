@@ -3,6 +3,7 @@ import { checkAuth, unauthorized } from "@/lib/auth";
 import { enrichItem } from "@/lib/enrich";
 import { supabaseConfigured } from "@/lib/env";
 import { sb, sbErrorMessage } from "@/lib/supabase";
+import { transcriptPassItem } from "@/lib/transcripts";
 
 export const dynamic = "force-dynamic";
 // a single waterfall is bounded (~3 fetch steps × 6 s) but leave headroom
@@ -37,7 +38,12 @@ export async function POST(
   }
 
   // the AI pass rides along on a manual retry (summary/topics/category) —
-  // vision runs first so categorization sees the image
+  // transcript + vision run first so categorization hears and sees the item
+  try {
+    await transcriptPassItem(id);
+  } catch {
+    // no captions available just skips the pass
+  }
   try {
     await visionPassItem(id);
   } catch {

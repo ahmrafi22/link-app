@@ -152,6 +152,7 @@ export async function aiEnrichItem(
       item.platform ? `platform: ${item.platform}` : null,
       item.raw_text,
       item.image_context,
+      (item.transcript ?? "").slice(0, 1200), // spoken content — the head carries the topic
       (item.extracted_text ?? "").slice(0, 1500),
     ]
       .filter(Boolean)
@@ -205,6 +206,7 @@ export async function aiEnrichItem(
         description: item.description,
         caption: item.raw_text,
         image_context: item.image_context ?? undefined,
+        transcript: (item.transcript ?? "").slice(0, 4000) || undefined,
         page_excerpt: (item.extracted_text ?? "").slice(0, 1200),
       };
     context.existing_categories = cats.map((c) => ({
