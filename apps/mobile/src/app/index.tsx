@@ -6,8 +6,6 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import {
   Alert,
   AppState,
-  Animated,
-  Easing,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -20,6 +18,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Animated, { Easing, FadeInDown, FadeOutDown } from "react-native-reanimated";
+
+// module scope — layout-animation builders rebuilt in render re-fire on every
+// re-render; a toast is uninvited, so it moves quicker and quieter than motion
+// the user asked for, and exits the way it entered (~20% faster)
+const TOAST_ENTER = FadeInDown.duration(300).easing(Easing.bezier(0.23, 1, 0.32, 1));
+const TOAST_EXIT = FadeOutDown.duration(240).easing(Easing.bezier(0.23, 1, 0.32, 1));
 
 import { createCardStyles, MasonryGrid, PressableScale } from "@/components/cards";
 import { getApiConfig } from "@/lib/api";
@@ -78,19 +83,13 @@ export default function InboxScreen() {
     setNotice({ id: Date.now(), text });
   }, []);
 
-  // auto-hide the snackbar (fade + slide on the way out)
-  const snackbarAnim = useRef(new Animated.Value(0)).current;
+  // auto-hide the snackbar; enter/exit are Reanimated layout animations —
+  // it exits the way it entered, ~20% faster than it arrived (toast recipe)
   useEffect(() => {
-    Animated.timing(snackbarAnim, {
-      toValue: notice ? 1 : 0,
-      duration: notice ? 240 : 180,
-      easing: notice ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
-      useNativeDriver: true,
-    }).start();
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 2400);
     return () => clearTimeout(t);
-  }, [notice, snackbarAnim]);
+  }, [notice]);
 
   // Drain the share inbox written by the native silent share target. Shares
   // land in a file while we're backgrounded; import them whenever the app
@@ -409,20 +408,9 @@ export default function InboxScreen() {
 
         {notice && (
           <Animated.View
-            style={[
-              styles.snackbar,
-              {
-                opacity: snackbarAnim,
-                transform: [
-                  {
-                    translateY: snackbarAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [16, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
+            entering={TOAST_ENTER}
+            exiting={TOAST_EXIT}
+            style={styles.snackbar}
             pointerEvents="none"
           >
             <Text style={styles.snackbarText}>{notice.text}</Text>

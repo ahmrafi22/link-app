@@ -1,5 +1,14 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  FadeInDown,
+  useSharedValue,
+  useAnimatedStyle,
+  useAnimatedReaction,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import * as Haptics from "expo-haptics";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
@@ -13,7 +22,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createCardStyles, FadeUp, formatWhen, MasonryGrid, PressableScale, type CardStyles } from "@/components/cards";
+import { createCardStyles, formatWhen, MasonryGrid, PressableScale, type CardStyles } from "@/components/cards";
 import { folderLabel, itemsInFolder } from "@/lib/folders";
 import { itemDisplayTitle, useVault, type VaultItem } from "@/lib/store";
 import { platformTile, useTheme, type ThemeColors } from "@/lib/theme";
@@ -31,7 +40,19 @@ const COLS = 5;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 
+// entrance stagger: only the first items animate (content the user asked for),
+// and each card plays at most once per session — a windowed re-mount must
+// never re-fire the entrance or the board flickers while panning
+const ENTRANCE_ITEMS = 10;
+const ENTRANCE_PLAYED = new Set<string>();
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+
 function clampZoom(z: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 20) / 20));
+}
+
+function clampZoomWorklet(z: number): number {
+  "worklet";
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 20) / 20));
 }
 
@@ -137,6 +158,13 @@ const CanvasCard = memo(function CanvasCard({
   const jx = h % 56 - 28;
   const jy = ((h >> 3) % 56) - 28;
   const rot = ((h >> 6) % 22) - 11;
+  // builders live in memo, never inline JSX (rebuilt builders re-fire the
+  // animation on every render); an already-seen card mounts with no entrance
+  const entering = useMemo(() => {
+    if (index >= ENTRANCE_ITEMS || ENTRANCE_PLAYED.has(item.id)) return undefined;
+    ENTRANCE_PLAYED.add(item.id);
+    return FadeInDown.duration(250).delay(index * 40).easing(EASE_OUT);
+  }, [item.id, index]);
   return (
     <View
       style={[
@@ -148,16 +176,15 @@ const CanvasCard = memo(function CanvasCard({
         },
       ]}
     >
-      <FadeUp index={index}>
+      <Animated.View entering={entering}>
         <PressableScale
           onPress={() => onOpen(item)}
-          pressedScale={0.92}
           accessibilityRole="button"
           accessibilityLabel={itemDisplayTitle(item)}
         >
           <CanvasItemCard item={item} styles={styles} />
         </PressableScale>
-      </FadeUp>
+      </Animated.View>
     </View>
   );
 });
@@ -184,11 +211,31 @@ function CanvasBoard({
   const { width: vw, height: vh } = useWindowDimensions();
   const vRef = useRef<ScrollView>(null);
   const hRef = useRef<ScrollView>(null);
+  // the live zoom lives in a shared value — the transform runs on the UI
+  // thread every frame; React state only mirrors the same quantized steps it
+  // always did (content size, recenter math, window recompute)
+  const zoomSV = useSharedValue(1);
+  const pinchBase = useSharedValue(1);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   const [pinching, setPinching] = useState(false);
-  const baseRef = useRef(1);
   const centeredRef = useRef(false);
+
+  const applyZoom = useCallback((z: number) => {
+    const clamped = clampZoom(z);
+    zoomRef.current = clamped;
+    setZoom(clamped);
+  }, []);
+
+  // fire back to the RN runtime only when the quantized step changes —
+  // never per frame (the "do something at a threshold" pattern)
+  useAnimatedReaction(
+    () => Math.round(zoomSV.get() * 20) / 20,
+    (q, prev) => {
+      if (q !== prev) scheduleOnRN(applyZoom, q);
+    },
+    [applyZoom]
+  );
 
   // Row-window virtualization: the board is a deterministic grid, so only the
   // rows near the viewport are mounted (± margin rows). Keeps both memory and
@@ -217,12 +264,6 @@ function CanvasBoard({
   useEffect(() => {
     recomputeWindow();
   }, [recomputeWindow, zoom]);
-
-  const applyZoom = useCallback((z: number) => {
-    const clamped = clampZoom(z);
-    zoomRef.current = clamped;
-    setZoom(clamped);
-  }, []);
 
   // centroid of where the cards actually sit (bounding box of placements)
   const contentCenter = useMemo(() => {
@@ -255,27 +296,39 @@ function CanvasBoard({
     });
   }, [contentCenter, vw, vh]);
 
-  // run on gesture end too — fingers-only zoom
+  // fingers-only zoom: the pinch runs as worklets on the UI thread (motion
+  // never waits for JS); the double-tap reset is a discrete JS-side event and
+  // gets the "snapped home" haptic in the same frame as the recenter
   const gesture = useMemo(() => {
     const pinch = Gesture.Pinch()
-      .runOnJS(true)
       .onBegin(() => {
-        baseRef.current = zoomRef.current;
-        setPinching(true);
+        pinchBase.set(zoomSV.get());
+        scheduleOnRN(setPinching, true);
       })
-      .onUpdate((e) => applyZoom(baseRef.current * e.scale))
-      .onEnd(() => setPinching(false));
+      .onUpdate((e) => {
+        zoomSV.set(clampZoomWorklet(pinchBase.get() * e.scale));
+      })
+      .onEnd(() => {
+        scheduleOnRN(setPinching, false);
+      });
     const doubleTap = Gesture.Tap()
       .runOnJS(true)
       .numberOfTaps(2)
       .onEnd((_e, success) => {
         if (success) {
+          zoomSV.set(1);
           applyZoom(1);
           recenter();
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         }
       });
     return Gesture.Exclusive(pinch, doubleTap);
   }, [applyZoom, recenter]);
+
+  // the board's visual scale — UI thread, every frame, no React renders
+  const boardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: zoomSV.get() }],
+  }));
 
   const rows = Math.max(1, Math.ceil(items.length / COLS));
   const boardW = COLS * CELL_W + 80;
@@ -337,13 +390,15 @@ function CanvasBoard({
             style={{ height: contentH }}
             contentContainerStyle={{ width: contentW }}
           >
-            <View
-              style={{
-                width: boardW,
-                height: boardH,
-                transform: [{ scale: zoom }],
-                transformOrigin: "top left",
-              }}
+            <Animated.View
+              style={[
+                {
+                  width: boardW,
+                  height: boardH,
+                  transformOrigin: "top left",
+                },
+                boardStyle,
+              ]}
             >
               {visibleIdx.map((i) => {
                 const item = items[i];
@@ -357,7 +412,7 @@ function CanvasBoard({
                   />
                 );
               })}
-            </View>
+            </Animated.View>
           </ScrollView>
         </ScrollView>
       </GestureDetector>

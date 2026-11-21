@@ -1,8 +1,6 @@
 import { router } from "expo-router";
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useState } from "react";
 import {
-  Animated,
-  Easing,
   Image,
   Pressable,
   StyleSheet,
@@ -10,14 +8,30 @@ import {
   View,
   type AccessibilityRole,
 } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { domainOf, itemDisplayTitle, type VaultItem } from "@/lib/store";
 import { platformTile, type ThemeColors } from "@/lib/theme";
 
 /**
- * Springy press feedback — the app-wide "everything tappable feels alive"
- * wrapper. Press scales down with a soft spring, releases with a bounce.
+ * Press feedback — the recipe: a near-imperceptible 120ms scale to ~3%, the
+ * same on every pressable. Press is a discrete state change, so timing (CSS
+ * transition), not a spring — bounce belongs to gestures that carry momentum.
+ * Runs on the UI thread via Reanimated's CSS transitions (New Architecture).
  */
+const pressStyles = StyleSheet.create({
+  pressable: {
+    transform: [{ scale: 1 }],
+    // CSS-transition styles are supported at runtime on the New Architecture
+    // but the RN style types don't include them yet
+    ...({
+      transitionProperty: "transform",
+      transitionDuration: "120ms",
+      transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
+    } as any),
+  },
+});
+
 export function PressableScale({
   onPress,
   onLongPress,
@@ -25,7 +39,7 @@ export function PressableScale({
   children,
   accessibilityRole,
   accessibilityLabel,
-  pressedScale = 0.95,
+  pressedScale = 0.97,
 }: {
   onPress?: () => void;
   onLongPress?: () => void;
@@ -35,65 +49,27 @@ export function PressableScale({
   accessibilityLabel?: string;
   pressedScale?: number;
 }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const to = (value: number) =>
-    Animated.spring(scale, {
-      toValue: value,
-      speed: 42,
-      bounciness: 7,
-      useNativeDriver: true,
-    }).start();
+  const [pressed, setPressed] = useState(false);
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
-      onPressIn={() => to(pressedScale)}
-      onPressOut={() => to(1)}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      pressRetentionOffset={10}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
     >
-      <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
+      <Animated.View
+        style={[
+          style,
+          pressStyles.pressable,
+          pressed && { transform: [{ scale: pressedScale }] },
+        ]}
+      >
+        {children}
+      </Animated.View>
     </Pressable>
-  );
-}
-
-/** Staggered fade+scale entrance — content lands on screen with a soft curve.
- * Only the first FADING_ITEMS items animate; past the fold everything renders
- * instantly (hundreds of Animated.Values make long lists janky on mount). */
-const FADING_ITEMS = 10;
-
-export function FadeUp({
-  index = 0,
-  children,
-}: {
-  index?: number;
-  children: React.ReactNode;
-}) {
-  const animate = index < FADING_ITEMS;
-  const v = useRef(new Animated.Value(animate ? 0 : 1)).current;
-  useEffect(() => {
-    if (!animate) return;
-    Animated.timing(v, {
-      toValue: 1,
-      duration: 340,
-      delay: index * 24,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [v, animate, index]);
-  return (
-    <Animated.View
-      style={{
-        opacity: v,
-        transform: [
-          {
-            scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] }),
-          },
-        ],
-      }}
-    >
-      {children}
-    </Animated.View>
   );
 }
 
