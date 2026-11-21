@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -143,6 +143,34 @@ function CanvasBoard({
   const baseRef = useRef(1);
   const centeredRef = useRef(false);
 
+  // Row-window virtualization: the board is a deterministic grid, so only the
+  // rows near the viewport are mounted (± margin rows). Keeps both memory and
+  // pinch/pan re-renders flat as the vault grows.
+  const vOffsetRef = useRef(0);
+  const [rowWindow, setRowWindow] = useState<[number, number]>([0, 12]);
+  const recomputeWindow = useCallback(() => {
+    const cellScaled = CELL_H * zoomRef.current;
+    const first = Math.max(0, Math.floor((vOffsetRef.current - 40 * zoomRef.current) / cellScaled) - 2);
+    const visible = Math.ceil(vh / cellScaled) + 1;
+    const last = Math.min(
+      Math.max(1, Math.ceil(items.length / COLS)) - 1,
+      first + visible + 3 // extra rows cover the ±28px placement jitter
+    );
+    setRowWindow((prev) => (prev[0] === first && prev[1] === last ? prev : [first, last]));
+  }, [items.length, vh]);
+
+  const onVScroll = useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      vOffsetRef.current = e.nativeEvent.contentOffset.y;
+      recomputeWindow();
+    },
+    [recomputeWindow]
+  );
+  // zoom changes and folder switches shift the visible window too
+  useEffect(() => {
+    recomputeWindow();
+  }, [recomputeWindow, zoom]);
+
   const applyZoom = useCallback((z: number) => {
     const clamped = clampZoom(z);
     zoomRef.current = clamped;
@@ -238,6 +266,8 @@ function CanvasBoard({
           showsVerticalScrollIndicator={false}
           scrollEnabled={!pinching}
           contentContainerStyle={styles.grow}
+          onScroll={onVScroll}
+          scrollEventThrottle={48}
         >
           <ScrollView
             ref={hRef}
@@ -257,8 +287,9 @@ function CanvasBoard({
               }}
             >
               {items.map((item, i) => {
-                const col = i % COLS;
                 const row = Math.floor(i / COLS);
+                if (row < rowWindow[0] || row > rowWindow[1]) return null;
+                const col = i % COLS;
                 const h = hashId(item.id);
                 const jx = ((h % 56) - 28);
                 const jy = (((h >> 3) % 56) - 28);
@@ -296,7 +327,13 @@ function CanvasBoard({
   );
 }
 
-function CanvasItemCard({ item, styles }: { item: VaultItem; styles: FolderStyles }) {
+const CanvasItemCard = memo(function CanvasItemCard({
+  item,
+  styles,
+}: {
+  item: VaultItem;
+  styles: FolderStyles;
+}) {
   const tile = platformTile(item.platform, item.kind);
   const showImage = !!item.thumbnailUrl;
   return (
@@ -330,7 +367,7 @@ function CanvasItemCard({ item, styles }: { item: VaultItem; styles: FolderStyle
       </View>
     </View>
   );
-}
+});
 
 const canvasImageStyle: ImageStyle = { width: "100%", height: "100%" };
 
