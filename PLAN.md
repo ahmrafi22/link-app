@@ -438,3 +438,39 @@ Goal: know what is INSIDE a post's images and videos, not just its metadata. Pri
 **Risks / honesty:** login-walled platforms (IG/FB reels) still expose only thumbnail + caption — the thumbnail vision pass partially fills that gap (scene + visible text, e.g. usernames/burned-in captions). Gemini's YouTube feature covers public videos only. Verify before building: exact free-tier video-minutes cap, flash-lite image support, timedtext stability from residential IPs.
 
 **Phase ⑥ amendment (2026-11-14, user decision): transcripts PARKED, thumbnail-vision ONLY.** No transcript fetching. Scope = vision pass on thumbnails feeding proper categorization: enrich → vision (thumbnail bytes → Gemini → `image_context`) → AI categorization (sees image_context). Video transcripts + image share target parked for later.
+
+---
+
+## Phase ⑦ (planned 2026-11-21) — Spoken-content transcripts for TikTok / Facebook / Instagram reels
+
+Supersedes the "IG/FB are login-walled → caption only" assumption above and the Phase ⑥ transcripts-parked amendment. Everything below was **live-verified 2026-11-20/21** on real URLs (including the user's own reels) before planning.
+
+**Research findings (all verified with plain HTTP, no login, no JS):**
+
+| Platform | Spoken transcript | Verified method | Evidence |
+|---|---|---|---|
+| TikTok | ✅ free | Page HTML → `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON → `video.subtitleInfos[]` → signed WebVTT URL → strip cues | NASA Artemis reel: real transcript pulled (2026-11-20). Caveats: some videos have no ASR track (`[]`), signed URLs expire (fetch immediately), `Source` = ASR or MT |
+| Facebook | ✅ free | Fetch reel page with **full browser header set** (bare curl gets 400 — header fingerprinting, not login wall) → HTML contains `"captions_url"` SRT URLs → download → strip timestamps | User's Jeremy Ethier reel: 14 caption URLs found, 15KB real SRT downloaded (2026-11-21). `facebookexternalhit` UA also serves og: metadata — already in our waterfall |
+| Instagram | ✅ via ASR | Full-header fetch → `video_versions[0].url` = direct mp4 (HTTP 206, valid `ftyp`) → extract audio → ASR → text. No caption files exposed | User's reel mp4 verified downloadable (2026-11-21). `video_dash_manifest` also present |
+| YouTube | ❌ walled | poToken/BotGuard gate: signed timedtext URLs carry `exp=xpo` → fetch returns 200 **empty** without a `pot` param; InnerTube (ANDROID/WEB/MWEB, ytcfg context, cookie session) all refuse with "The page needs to be reloaded." Bypassing = executing BotGuard obfuscated JS = anti-bot circumvention (out of scope by plan rules) | 6 escalation attempts documented (2026-11-21). YT stays on oEmbed metadata + thumbnail vision. Legit future option: third-party transcript API with free tier |
+
+**Local-on-phone verdict (user question, 2026-11-21):** possible but not chosen. FB/TikTok transcript fetches are trivial HTTP (could run in the receiver), audio demux is native (`MediaExtractor`), whisper.cpp on-device is real (quantized tiny ~75MB / base ~148MB, JNI). Rejected because: the silent receiver must stay ~2s; local ASR needs a WorkManager layer (idle-time scheduling complexity); +75–150MB payload; and the server already has the retry/cache/AI wiring. **Decision: server-side hybrid** — phone stays dumb-and-fast, all enrichment stays in one place.
+
+**ASR engine choice (IG path):** Gemini inline audio with the existing key (zero new keys; audio used strictly for transcription → text, honoring the "LLM only receives text" intent) vs Groq free `whisper-large-v3-turbo` (~2,000 req/day, needs a new free key). Default: **Gemini**, Groq as documented fallback. Audio extraction server-side needs `ffmpeg-static` (~78MB — fits Vercel's 250MB bundle; flag if bundle size bites; alternative is assembling the DASH audio track manually, which is complex).
+
+**Build order (small commits, one branch `feat/transcripts`):**
+1. **Migration `0005_transcript.sql`** — `alter table items add column if not exists transcript text;` + regenerate `search_tsv` to include `coalesce(transcript,'')` (spoken content becomes searchable). User pastes into the Supabase SQL editor.
+2. **`lib/transcripts.ts`** — `tiktokTranscript(url)` (WebVTT) + `facebookTranscript(url)` (SRT via full-browser-header fetch — the header set is load-bearing, document it in-code). Strip timestamps, cap ~15k chars, 30-day `fetch_cache`, silent null on missing tracks. Pure additions, no new keys needed.
+3. **Wire into the pipeline** — `after()` order becomes enrich → transcript (per-platform) → vision → AI; retry endpoint forces the transcript steps; `aiEnrichItem` consumes `transcript` (summary prompt cap ~10k chars, embed text first ~1,200 chars).
+4. **Instagram audio path** — IG full-header fetch → mp4 download (≤30MB cap) → `ffmpeg-static` audio demux → Gemini inline-audio transcription (existing key) → `transcript` column. Slowest step (~30–60s) — fine inside the 300s `maxDuration`.
+5. **Mobile** — `VaultItem.transcript` in sync mapping; item detail card "🔊 Spoken content" (collapsible excerpt); honest absence (no card when null). Version bump → CI APK.
+6. **Live verification** — user's FB reel + a TikTok with speech + an IG reel through the production pipeline: `transcript` filled, category/summary improve vs the vision-only baseline (the two test items from 2026-11-21 research are already in the vault as baseline comparisons).
+
+**Risks / honesty:** FB/IG header-fingerprint acceptance could tighten any day (degrade silently — the waterfall already does); ffmpeg bundle size on Vercel; ASR quota on IG volume; transcripts of a different language than the post metadata are normal (ASR output language = spoken language). No new keys required for steps 1–3.
+
+**Phase ⑦ build record (2026-11-21, branch `feat/transcripts`, v0.5.8):**
+- Migration `0005_transcript.sql` — `items.transcript` + `search_tsv` regenerated to index spoken content (generated column = drop+re-add + GIN rebuild).
+- `lib/transcripts.ts` — `tiktokTranscript` (page JSON → `subtitleInfos` → WebVTT → text) + `facebookTranscript` (SRT from `"captions_url"`) + `transcriptPassItem` (idempotent item-level pass; the item's own column is the memo — no separate negative cache). **Live finding: TikTok's WAF fingerprints the HTTP client — curl passes, Node/undici gets a 1.4KB JS-challenge stub. Fingerprint emulation is out of scope, so the server-side TikTok fetcher degrades to null fast; device-side TikTok transcripts remain a follow-up via the hybrid model.** FB works from Node and is expected to work from Vercel (verify on deploy).
+- `lib/instaAudio.ts` — IG reel mp4 (`video_versions[0].url`, ≤40MB) → `ffmpeg-static` demux to 16kHz mono mp3 (~150KB/min) → `aiAudio` (Gemini inline-audio, 120s budget, model-fallback chain like vision) → text. Bytes pass through, never stored; "NO_SPEECH" handled. next.config: `serverExternalPackages` + `outputFileTracingIncludes` for the binary; retry route `maxDuration` 60→300 (IG path can run minutes). Local smoke: 2.5MB mp4 → 151KB mp3 verified; ASR call verifies on prod (key lives in Vercel).
+- Wiring: `after()` order = enrich → transcript → vision → AI; retry endpoint forces the same chain; AI pass embeds first ~1,200 chars of transcript and shows up to ~4,000 chars in the categorization prompt.
+- Mobile (v0.5.8): `ApiItem.transcript` / `VaultItem.transcript` + sync mapping (both directions) + collapsible "🔊 Spoken content" card on item detail.
