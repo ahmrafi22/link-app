@@ -1,6 +1,7 @@
 import { Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, Text, View, useColorScheme } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { theme } from "@/lib/theme";
 
@@ -31,16 +32,18 @@ export default function RootLayout() {
         },
       }}
     >
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: c.bg },
-          // smooth curved screen transitions instead of hard cuts
-          animation: "fade_from_bottom",
-          animationDuration: 260,
-        }}
-      />
+      <GestureHandlerRootView style={styles.root}>
+        <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: c.bg },
+            // smooth curved screen transitions instead of hard cuts
+            animation: "fade_from_bottom",
+            animationDuration: 260,
+          }}
+        />
+      </GestureHandlerRootView>
     </ThemeProvider>
   );
 }
@@ -57,6 +60,7 @@ export function ErrorBoundary({ error }: { error: Error }) {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: theme.light.bg },
   container: {
     flex: 1,
     backgroundColor: theme.light.bg,
