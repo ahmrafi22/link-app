@@ -211,11 +211,31 @@ function CanvasBoard({
   const { width: vw, height: vh } = useWindowDimensions();
   const vRef = useRef<ScrollView>(null);
   const hRef = useRef<ScrollView>(null);
+  // the live zoom lives in a shared value — the transform runs on the UI
+  // thread every frame; React state only mirrors the same quantized steps it
+  // always did (content size, recenter math, window recompute)
+  const zoomSV = useSharedValue(1);
+  const pinchBase = useSharedValue(1);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   const [pinching, setPinching] = useState(false);
-  const baseRef = useRef(1);
   const centeredRef = useRef(false);
+
+  const applyZoom = useCallback((z: number) => {
+    const clamped = clampZoom(z);
+    zoomRef.current = clamped;
+    setZoom(clamped);
+  }, []);
+
+  // fire back to the RN runtime only when the quantized step changes —
+  // never per frame (the "do something at a threshold" pattern)
+  useAnimatedReaction(
+    () => Math.round(zoomSV.get() * 20) / 20,
+    (q, prev) => {
+      if (q !== prev) scheduleOnRN(applyZoom, q);
+    },
+    [applyZoom]
+  );
 
   // Row-window virtualization: the board is a deterministic grid, so only the
   // rows near the viewport are mounted (± margin rows). Keeps both memory and
@@ -244,12 +264,6 @@ function CanvasBoard({
   useEffect(() => {
     recomputeWindow();
   }, [recomputeWindow, zoom]);
-
-  const applyZoom = useCallback((z: number) => {
-    const clamped = clampZoom(z);
-    zoomRef.current = clamped;
-    setZoom(clamped);
-  }, []);
 
   // centroid of where the cards actually sit (bounding box of placements)
   const contentCenter = useMemo(() => {
@@ -282,27 +296,39 @@ function CanvasBoard({
     });
   }, [contentCenter, vw, vh]);
 
-  // run on gesture end too — fingers-only zoom
+  // fingers-only zoom: the pinch runs as worklets on the UI thread (motion
+  // never waits for JS); the double-tap reset is a discrete JS-side event and
+  // gets the "snapped home" haptic in the same frame as the recenter
   const gesture = useMemo(() => {
     const pinch = Gesture.Pinch()
-      .runOnJS(true)
       .onBegin(() => {
-        baseRef.current = zoomRef.current;
-        setPinching(true);
+        pinchBase.set(zoomSV.get());
+        scheduleOnRN(setPinching, true);
       })
-      .onUpdate((e) => applyZoom(baseRef.current * e.scale))
-      .onEnd(() => setPinching(false));
+      .onUpdate((e) => {
+        zoomSV.set(clampZoomWorklet(pinchBase.get() * e.scale));
+      })
+      .onEnd(() => {
+        scheduleOnRN(setPinching, false);
+      });
     const doubleTap = Gesture.Tap()
       .runOnJS(true)
       .numberOfTaps(2)
       .onEnd((_e, success) => {
         if (success) {
+          zoomSV.set(1);
           applyZoom(1);
           recenter();
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         }
       });
     return Gesture.Exclusive(pinch, doubleTap);
   }, [applyZoom, recenter]);
+
+  // the board's visual scale — UI thread, every frame, no React renders
+  const boardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: zoomSV.get() }],
+  }));
 
   const rows = Math.max(1, Math.ceil(items.length / COLS));
   const boardW = COLS * CELL_W + 80;
@@ -364,13 +390,15 @@ function CanvasBoard({
             style={{ height: contentH }}
             contentContainerStyle={{ width: contentW }}
           >
-            <View
-              style={{
-                width: boardW,
-                height: boardH,
-                transform: [{ scale: zoom }],
-                transformOrigin: "top left",
-              }}
+            <Animated.View
+              style={[
+                {
+                  width: boardW,
+                  height: boardH,
+                  transformOrigin: "top left",
+                },
+                boardStyle,
+              ]}
             >
               {visibleIdx.map((i) => {
                 const item = items[i];
@@ -384,7 +412,7 @@ function CanvasBoard({
                   />
                 );
               })}
-            </View>
+            </Animated.View>
           </ScrollView>
         </ScrollView>
       </GestureDetector>
